@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Severity Classifier · v2 + queue pressure test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --paper:#EFF0EE; --card:#FFFFFF; --ink:#15171A; --ink-2:#4A5054; --ink-3:#7C8388;
+  --rule:#D4D7D4; --rule-2:#E5E7E4; --well:#F7F8F6;
+  /* the only saturated values in the document */
+  --critical:#BE2E1A; --medium:#C08006; --low:#6E767A; --info:#1B5FC4; --success:#127A43;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --display:'Archivo','Inter',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1300px;margin:0 auto;padding:0 28px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+a.xlink{text-decoration:none;border-bottom:1px solid var(--rule);padding-bottom:2px}
+a.xlink:hover{color:var(--ink);border-color:var(--ink)}
+h1,h2,h3{font-family:var(--display);font-weight:800;letter-spacing:-.02em;margin:0}
+p{margin:0}
+
+.masthead{border-bottom:1px solid var(--rule);padding:26px 0 34px}
+.mast-rule{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:38px}
+h1{font-size:clamp(32px,5vw,56px);line-height:1.02;max-width:17ch}
+.lede{margin-top:20px;max-width:58ch;color:var(--ink-2);font-size:16.5px}
+.lede strong{color:var(--ink);font-weight:600}
+
+.presets{padding:18px 0;border-bottom:1px solid var(--rule);display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:11.5px;background:transparent;border:1px solid var(--rule);color:var(--ink-2);padding:7px 11px;border-radius:2px;cursor:pointer;transition:.12s}
+.chip:hover{border-color:var(--ink);color:var(--ink);background:var(--card)}
+.chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 430px;align-items:start}
+.left{padding:8px 44px 80px 0;border-right:1px solid var(--rule)}
+.right{padding:34px 0 80px 32px;position:sticky;top:0}
+
+.q{padding:30px 0;border-bottom:1px solid var(--rule-2)}
+.q:last-child{border-bottom:0}
+.q-head{display:flex;gap:14px;align-items:baseline}
+.q-num{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.1em;padding-top:3px;flex:none}
+.q-title{font-family:var(--display);font-weight:600;font-size:19px;letter-spacing:-.01em}
+.q-help{color:var(--ink-3);font-size:13.5px;margin:3px 0 15px 30px;max-width:54ch}
+.opts{margin-left:30px;display:grid;gap:8px}
+.opts.two{grid-template-columns:1fr 1fr}
+.opts.four{grid-template-columns:repeat(4,1fr)}
+@media(max-width:900px){.opts.two,.opts.four{grid-template-columns:1fr}}
+label.opt{display:block;background:var(--card);border:1px solid var(--rule);padding:11px 13px;border-radius:3px;cursor:pointer;transition:border-color .12s,box-shadow .12s;position:relative}
+label.opt:hover{border-color:var(--ink-3)}
+label.opt input{position:absolute;opacity:0;width:0;height:0}
+label.opt:has(input:checked){border-color:var(--ink);box-shadow:inset 3px 0 0 var(--ink)}
+label.opt:has(input:focus-visible){outline:2px solid var(--ink);outline-offset:2px}
+.opt-t{font-weight:600;font-size:14.5px;letter-spacing:-.005em}
+.opt-d{color:var(--ink-3);font-size:12.5px;line-height:1.45;margin-top:2px}
+.opt-rung{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+
+/* also-affects checkboxes */
+.tags{margin-left:30px;display:flex;gap:8px;flex-wrap:wrap}
+label.tag{font-family:var(--mono);font-size:11.5px;border:1px solid var(--rule);background:var(--card);padding:6px 11px;border-radius:2px;cursor:pointer;color:var(--ink-2);position:relative}
+label.tag input{position:absolute;opacity:0;width:0;height:0}
+label.tag:has(input:checked){border-color:var(--ink);color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+label.tag:has(input:disabled){opacity:.35;cursor:not-allowed}
+label.tag:has(input:focus-visible){outline:2px solid var(--ink);outline-offset:2px}
+
+/* ---------- verdict ---------- */
+.verdict{border:1px solid var(--ink);background:var(--card);border-radius:3px;overflow:hidden}
+.v-top{padding:20px 22px 22px;border-bottom:1px solid var(--rule);position:relative}
+.v-top::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--tone,var(--low))}
+.v-window{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin-left:12px}
+.v-tier{font-family:var(--display);font-weight:800;font-size:50px;line-height:1;letter-spacing:-.035em;color:var(--tone,var(--low));margin:5px 0 0 12px}
+.v-sub{margin:8px 0 0 12px;font-size:14.5px;max-width:34ch}
+.v-flags{margin:12px 0 0 12px;display:flex;gap:6px;flex-wrap:wrap}
+.flag{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;border:1px solid var(--rule);color:var(--ink-2);padding:3px 7px;border-radius:2px;background:var(--well)}
+.flag.hot{border-color:var(--tone);color:var(--tone)}
+
+/* ladder — the signature */
+.ladder{margin:18px 0 0 12px}
+.rung{display:grid;grid-template-columns:64px 1fr;gap:12px;align-items:center;padding:5px 0;border-top:1px dotted var(--rule)}
+.rung:first-child{border-top:0}
+.rung-bar{height:5px;border-radius:2px;background:var(--rule-2)}
+.rung.on .rung-bar{background:var(--tone,var(--low))}
+.rung-lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;color:var(--ink-3)}
+.rung.on .rung-lab{color:var(--ink);font-weight:500}
+.rung.past .rung-bar{background:var(--rule)}
+
+.v-sec{padding:18px 22px;border-bottom:1px solid var(--rule-2)}
+.v-sec:last-child{border-bottom:0}
+.v-sec h3{font-size:10.5px;font-family:var(--mono);font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin-bottom:11px}
+.do{font-size:14px;line-height:1.45;font-weight:500}
+.do-who{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-top:7px}
+dl.spec{display:grid;grid-template-columns:92px 1fr;gap:7px 14px;margin:0;font-size:13px}
+dl.spec dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+dl.spec dd{margin:0;color:var(--ink)}
+
+.preview-frame{background:var(--well);border:1px solid var(--rule-2);border-radius:3px;padding:13px}
+.preview-caption{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:9px}
+.alert{background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--tone,var(--low));border-radius:2px;padding:11px 13px;display:flex;gap:11px;align-items:flex-start}
+.alert.filled{background:var(--tone);border-color:var(--tone);color:#fff}
+.alert.filled .a-meta{color:rgba(255,255,255,.78)}
+.alert.filled .a-cta{border-color:rgba(255,255,255,.55);color:#fff}
+.a-dot{width:8px;height:8px;border-radius:50%;background:var(--tone);margin-top:5px;flex:none}
+.alert.filled .a-dot{background:#fff}
+.a-body{min-width:0;flex:1}
+.a-meta{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.a-text{font-size:13px;line-height:1.42;margin-top:3px}
+.a-cta{display:inline-block;margin-top:8px;font-size:11.5px;font-weight:600;border:1px solid var(--tone);color:var(--tone);padding:4px 9px;border-radius:2px}
+.statusline{display:flex;align-items:center;gap:8px;font-size:13px}
+.statusline .a-dot{margin-top:0}
+
+.homeline{margin-top:11px;padding-top:11px;border-top:1px dotted var(--rule)}
+.homelab{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.hometext{font-size:13px;line-height:1.42}
+
+.trace{font-family:var(--mono);font-size:11.5px;line-height:1.5;color:var(--ink-2)}
+.trace .t{display:flex;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px dotted var(--rule)}
+.trace .t:last-child{border-bottom:0}
+.trace .t .m{flex:none;width:11px;color:var(--ink-3)}
+.trace .t.mv .m{color:var(--tone,var(--low))}
+.trace .t.mv span:last-child{color:var(--ink)}
+
+.v-foot{padding:14px 22px;background:var(--well);display:flex;gap:9px;flex-wrap:wrap}
+button.act{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;background:var(--ink);color:#fff;border:1px solid var(--ink);padding:8px 13px;border-radius:2px;cursor:pointer}
+button.act.ghost{background:transparent;color:var(--ink-2);border-color:var(--rule)}
+button.act:hover{opacity:.85}
+button.act:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+.band{border-top:1px solid var(--rule);padding:54px 0}
+.band-head{display:grid;grid-template-columns:210px 1fr;gap:32px;margin-bottom:30px}
+@media(max-width:900px){.band-head{grid-template-columns:1fr;gap:10px}}
+.band-head h2{font-size:26px;max-width:20ch}
+.band-head p{color:var(--ink-2);max-width:62ch;font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:500;border-bottom:1px solid var(--rule)}
+tbody tr:hover{background:var(--card)}
+td.tier{font-family:var(--display);font-weight:700;font-size:13.5px;white-space:nowrap}
+.swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px}
+td.mono{font-family:var(--mono);font-size:11.5px;color:var(--ink-2)}
+.tbl-scroll{overflow-x:auto}
+.tbl-scroll table{min-width:820px}
+
+.rules{display:grid;grid-template-columns:repeat(2,1fr);border-top:1px solid var(--rule)}
+@media(max-width:900px){.rules{grid-template-columns:1fr}}
+.rule-item{padding:20px 26px 20px 0;border-bottom:1px solid var(--rule-2)}
+.rule-item:nth-child(odd){border-right:1px solid var(--rule-2)}
+.rule-item:nth-child(even){padding-left:26px}
+@media(max-width:900px){.rule-item,.rule-item:nth-child(odd){border-right:0;padding-left:0;padding-right:0}}
+.rule-item h3{font-size:15.5px;font-weight:600;margin-bottom:5px;letter-spacing:-.005em}
+.rule-item p{color:var(--ink-2);font-size:13.5px;line-height:1.5}
+.rule-item .tagline{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+
+footer{border-top:1px solid var(--rule);padding:26px 0 44px;color:var(--ink-3);font-size:12px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media(max-width:1060px){
+  .grid{grid-template-columns:1fr}
+  .left{border-right:0;padding-right:0;padding-bottom:24px}
+  .right{position:static;padding-left:0;border-top:1px solid var(--rule);padding-top:26px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+
+:root{
+  --paper:#EFF0EE; --card:#FFFFFF; --ink:#15171A; --ink-2:#4A5054; --ink-3:#7C8388;
+  --rule:#D4D7D4; --rule-2:#E5E7E4; --well:#F7F8F6;
+  --critical:#BE2E1A; --medium:#C08006; --low:#6E767A; --info:#1B5FC4; --success:#127A43;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --display:'Archivo','Inter',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+h1,h2,h3{font-family:var(--display);font-weight:800;letter-spacing:-.02em;margin:0}
+p{margin:0}
+a{color:inherit}
+
+.masthead{border-bottom:1px solid var(--rule);padding:24px 0 30px}
+.mast-rule{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:32px}
+.back{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);text-decoration:none;border-bottom:1px solid var(--rule);padding-bottom:2px}
+.back:hover{color:var(--ink);border-color:var(--ink)}
+h1{font-size:clamp(30px,4.4vw,50px);line-height:1.03;max-width:18ch}
+.lede{margin-top:18px;max-width:60ch;color:var(--ink-2);font-size:16.5px}
+.lede strong{color:var(--ink);font-weight:600}
+
+/* ---------- control bar ---------- */
+.controls{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--rule);padding:14px 0;display:flex;gap:26px;flex-wrap:wrap;align-items:center}
+.ctrl{display:flex;gap:8px;align-items:center}
+.ctrl-lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:flex;border:1px solid var(--rule);border-radius:2px;overflow:hidden;background:var(--card)}
+.seg button{font-family:var(--mono);font-size:11px;background:transparent;border:0;border-right:1px solid var(--rule);color:var(--ink-3);padding:6px 10px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+
+/* ---------- queue ---------- */
+.stage{padding:34px 0 20px}
+.groupbar{display:flex;align-items:baseline;gap:14px;margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+.stage.flat .groupbar{display:none}
+.groupbar h2{font-size:17px;font-weight:600}
+.groupbar .count{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.groupbar .win{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-left:auto}
+
+.row{
+  display:grid;grid-template-columns:6px 92px 1fr 172px;gap:0;
+  background:var(--card);border:1px solid var(--rule-2);border-radius:3px;
+  margin-bottom:7px;align-items:stretch;overflow:hidden;
+}
+.stripe{background:var(--tone)}
+.slot-tier{padding:13px 0 13px 14px;display:flex;flex-direction:column;gap:3px}
+.tier-name{font-family:var(--display);font-weight:800;font-size:13.5px;letter-spacing:-.01em;color:var(--tone)}
+.tier-win{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.slot-body{padding:13px 18px;min-width:0}
+.subject{font-weight:600;font-size:14.5px;letter-spacing:-.005em}
+.condition{font-size:13.5px;color:var(--ink-2);margin-top:2px;line-height:1.42}
+.metaline{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.tag{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule);color:var(--ink-3);padding:2px 6px;border-radius:2px}
+.tag.dom{border-color:var(--rule-2);background:var(--well)}
+.tag.hot{border-color:var(--tone);color:var(--tone)}
+.tag.state{border-style:dashed}
+.slot-act{padding:13px 16px 13px 0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:5px;border-left:1px solid var(--rule-2);padding-left:16px}
+.cta{font-size:12px;font-weight:600;border:1px solid var(--tone);color:var(--tone);padding:5px 10px;border-radius:2px;background:transparent;cursor:default;white-space:nowrap}
+.owner{font-family:var(--mono);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+
+/* critical gets the only filled treatment in the queue */
+.row.critical{border-color:var(--critical)}
+.row.critical .slot-tier{background:var(--critical)}
+.row.critical .tier-name{color:#fff}
+.row.critical .tier-win{color:rgba(255,255,255,.72)}
+.row.critical .cta{background:var(--critical);color:#fff;border-color:var(--critical)}
+
+/* low rows recede */
+.row.low{background:transparent;border-style:dashed}
+.row.low .subject{font-weight:500}
+.row.low .cta{border-color:var(--rule);color:var(--ink-3)}
+
+/* density */
+body.compact .condition{display:none}
+body.compact .slot-body{padding-top:10px;padding-bottom:10px}
+body.compact .slot-tier,body.compact .slot-act{padding-top:10px;padding-bottom:10px}
+body.compact .metaline{margin-top:5px}
+
+/* stress views */
+.stage{transition:filter .18s}
+body.mono-view .stage{filter:saturate(0)}
+body.squint-view .stage{filter:blur(3.2px)}
+body.squint-view.mono-view .stage{filter:saturate(0) blur(3.2px)}
+
+/* not-in-queue panel */
+.aside{border:1px solid var(--rule);border-radius:3px;background:var(--well);padding:18px 20px;margin-top:34px}
+.aside h3{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:500;margin-bottom:12px}
+.staterow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dotted var(--rule);font-size:13.5px}
+.staterow:last-child{border-bottom:0}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.staterow .who{color:var(--ink);font-weight:500}
+.staterow .what{color:var(--ink-2)}
+.aside p{font-size:13px;color:var(--ink-3);margin-top:12px;max-width:70ch}
+
+/* findings */
+.band{border-top:1px solid var(--rule);padding:50px 0}
+.band-head{display:grid;grid-template-columns:200px 1fr;gap:32px;margin-bottom:28px}
+@media(max-width:900px){.band-head{grid-template-columns:1fr;gap:10px}}
+.band-head h2{font-size:25px;max-width:20ch}
+.band-head p{color:var(--ink-2);max-width:62ch}
+.tests{display:grid;grid-template-columns:repeat(2,1fr);border-top:1px solid var(--rule)}
+@media(max-width:900px){.tests{grid-template-columns:1fr}}
+.test{padding:20px 26px 20px 0;border-bottom:1px solid var(--rule-2)}
+.test:nth-child(odd){border-right:1px solid var(--rule-2)}
+.test:nth-child(even){padding-left:26px}
+@media(max-width:900px){.test,.test:nth-child(odd){border-right:0;padding-left:0;padding-right:0}}
+.test .tagline{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.test h3{font-size:15.5px;font-weight:600;margin-bottom:5px}
+.test p{color:var(--ink-2);font-size:13.5px;line-height:1.5}
+
+footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);font-size:12px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media(max-width:860px){
+  .row{grid-template-columns:5px 1fr}
+  .slot-tier{flex-direction:row;align-items:baseline;gap:9px;padding:11px 14px 0}
+  .row.critical .slot-tier{background:transparent}
+  .row.critical .tier-name{color:var(--critical)}
+  .row.critical .tier-win{color:var(--ink-3)}
+  .slot-act{border-left:0;border-top:1px solid var(--rule-2);padding:11px 16px;flex-direction:row;align-items:center;gap:12px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+
+/* ---- view switch ---- */
+.viewnav{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:1px solid var(--rule);}
+.viewnav .inner{max-width:1300px;margin:0 auto;padding:10px 28px;display:flex;gap:0;align-items:center}
+.viewnav button{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ink-3);
+  padding:8px 0;margin-right:26px;cursor:pointer}
+.viewnav button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.viewnav button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.viewnav .spacer{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3)}
+#view-queue .controls{top:41px}
+#view-classifier .right{top:52px}
+
+</style>
+</head>
+<body>
+
+<nav class="viewnav"><div class="inner">
+  <button id="nav-classifier" aria-pressed="true">The classifier</button>
+  <button id="nav-queue" aria-pressed="false">Queue pressure test</button>
+  <span class="spacer">Severity model v2</span>
+</div></nav>
+
+<div id="view-classifier">
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="mast-rule">
+    <span class="eyebrow">Event severity classifier · v2 · margin model</span>
+    <a class="eyebrow xlink" href="queue-pressure-test.html">See it in a live queue →</a>
+  </div>
+  <h1>Three tiers, because a dealer has three responses.</h1>
+  <p class="lede">Severity here is <strong>remaining margin</strong>, not imagined consequence — how much reserve the system has left before it stops holding the line. Margin is observable, which means the product can assign the tier instead of asking a person to. Each tier maps to one thing a dealer actually does: <strong>go today</strong>, <strong>put it on the schedule</strong>, or <strong>catch it on a visit already booked</strong>.</p>
+</header>
+
+<div class="presets">
+  <span class="eyebrow" style="margin-right:2px">Try one</span>
+  <button class="chip" data-preset="co">CO elevated, school in session</button>
+  <button class="chip" data-preset="noheat">No heat, occupied home, 8°F</button>
+  <button class="chip" data-preset="aux">Aux heat running nightly, 3rd week</button>
+  <button class="chip" data-preset="inducer">Inducer drawing high, fails in weeks</button>
+  <button class="chip" data-preset="defrost">One unexpected defrost cycle</button>
+  <button class="chip" data-preset="demand">Demand limit breached, shed active</button>
+  <button class="chip" data-preset="night">Setback missed, building empty</button>
+  <button class="chip" data-preset="offline">Thermostat offline 6 hours</button>
+</div>
+
+<div class="grid">
+
+<!-- ================= INPUTS ================= -->
+<div class="left">
+
+  <section class="q">
+    <div class="q-head"><span class="q-num">01</span><span class="q-title">Which domain does this belong to?</span></div>
+    <p class="q-help">Domain is a routing axis, not a severity input. It decides who receives the event, what the action is, and which revenue motion it feeds — but on its own it doesn't make anything urgent.</p>
+    <div class="opts two" role="radiogroup" aria-label="Domain">
+      <label class="opt"><input type="radio" name="domain" value="safety">
+        <div class="opt-t">Safety &amp; air quality</div><div class="opt-d">Combustion products, electrical hazard, IAQ, water intrusion</div></label>
+      <label class="opt"><input type="radio" name="domain" value="comfort" checked>
+        <div class="opt-t">Comfort &amp; climate</div><div class="opt-d">Holding the space to set point, humidity, occupant experience</div></label>
+      <label class="opt"><input type="radio" name="domain" value="health">
+        <div class="opt-t">System health</div><div class="opt-d">The equipment itself — components, wear, service life</div></label>
+      <label class="opt"><input type="radio" name="domain" value="energy">
+        <div class="opt-t">Energy</div><div class="opt-d">Consumption, demand, the bill</div></label>
+      <label class="opt"><input type="radio" name="domain" value="state">
+        <div class="opt-t">System or link state</div><div class="opt-d">Connectivity, data freshness, commissioning — no margin dimension</div></label>
+    </div>
+  </section>
+
+  <section class="q" id="q-also">
+    <div class="q-head"><span class="q-num">02</span><span class="q-title">Does the same condition touch other domains?</span></div>
+    <p class="q-help">Most real conditions light up several at once. One condition produces one row at its highest tier, with the others carried as named impacts — otherwise the queue triple-counts and the badge lies to a service manager staffing a day.</p>
+    <div class="tags" id="also-tags">
+      <label class="tag"><input type="checkbox" name="also" value="safety"> Safety &amp; air quality</label>
+      <label class="tag"><input type="checkbox" name="also" value="comfort"> Comfort &amp; climate</label>
+      <label class="tag"><input type="checkbox" name="also" value="health"> System health</label>
+      <label class="tag"><input type="checkbox" name="also" value="energy"> Energy</label>
+    </div>
+  </section>
+
+  <div id="path-condition">
+    <section class="q">
+      <div class="q-head"><span class="q-num">03</span><span class="q-title">How much margin is left?</span></div>
+      <p class="q-help">This is the spine. Equipment rarely fails discretely — it compensates, then compensates harder, then can't. Each rung is something a connected system can observe directly.</p>
+      <div class="opts" role="radiogroup" aria-label="Margin">
+        <label class="opt"><input type="radio" name="margin" value="ceased">
+          <div class="opt-rung">Rung 3 — no margin</div>
+          <div class="opt-t">The function has stopped</div>
+          <div class="opt-d">It is not maintaining the space, the equipment is down, or the limit has been breached</div></label>
+        <label class="opt"><input type="radio" name="margin" value="brink" checked>
+          <div class="opt-rung">Rung 2 — at the limit</div>
+          <div class="opt-t">Compensating as hard as it can, and it won't hold</div>
+          <div class="opt-d">Full stage, continuous run, aux locked on, trend crossing a hard boundary</div></label>
+        <label class="opt"><input type="radio" name="margin" value="compensating">
+          <div class="opt-rung">Rung 1 — margin consumed</div>
+          <div class="opt-t">Doing something unexpected to hold the line — and holding</div>
+          <div class="opt-d">Extra stages, added defrost, longer cycles. Nothing is wrong yet; reserve is being spent</div></label>
+      </div>
+    </section>
+
+    <section class="q">
+      <div class="q-head"><span class="q-num">04</span><span class="q-title">How often?</span></div>
+      <p class="q-help">Repetition promotes the rung, not the tier — spending reserve once is an observation, spending it nightly is a condition. This is why the object being classified is a condition over time, with a first-seen date and a count, not a stream of events.</p>
+      <div class="opts" role="radiogroup" aria-label="Repetition">
+        <label class="opt"><input type="radio" name="repetition" value="first" checked>
+          <div class="opt-t">First observation</div></label>
+        <label class="opt"><input type="radio" name="repetition" value="recurring">
+          <div class="opt-t">Recurring</div><div class="opt-d">Several times in the observation window</div></label>
+        <label class="opt"><input type="radio" name="repetition" value="persistent">
+          <div class="opt-t">Persistent or continuous</div></label>
+      </div>
+    </section>
+
+    <section class="q" id="q-horizon">
+      <div class="q-head"><span class="q-num">05</span><span class="q-title">When does it stop holding?</span></div>
+      <p class="q-help">This is what replaced the fourth tier. "On the brink" inside the response window is Critical; "on the brink" in six weeks is planned work. Time splits the rung — confidence no longer does.</p>
+      <div class="opts" role="radiogroup" aria-label="Horizon">
+        <label class="opt"><input type="radio" name="horizon" value="hours" checked><div class="opt-t">Within hours — today</div></label>
+        <label class="opt"><input type="radio" name="horizon" value="days"><div class="opt-t">Days — this week</div></label>
+        <label class="opt"><input type="radio" name="horizon" value="weeks"><div class="opt-t">Weeks</div></label>
+        <label class="opt"><input type="radio" name="horizon" value="open"><div class="opt-t">Months, or no defined horizon</div></label>
+      </div>
+    </section>
+
+    <section class="q">
+      <div class="q-head"><span class="q-num">06</span><span class="q-title">Who is in the building, and when?</span></div>
+      <p class="q-help">Identical margin, different tier. A school at 7am Monday and the same school at 2am Saturday are not the same event, and a product that can't tell them apart will either over-alert or miss the one that mattered.</p>
+      <div class="opts" role="radiogroup" aria-label="Occupancy">
+        <label class="opt"><input type="radio" name="occupancy" value="sensitive">
+          <div class="opt-t">Occupied and sensitive</div>
+          <div class="opt-d">School, healthcare, elderly or infant occupants, or product/inventory at risk</div></label>
+        <label class="opt"><input type="radio" name="occupancy" value="normal" checked>
+          <div class="opt-t">Occupied, ordinary</div></label>
+        <label class="opt"><input type="radio" name="occupancy" value="off">
+          <div class="opt-t">Unoccupied or off-hours</div></label>
+        <label class="opt"><input type="radio" name="occupancy" value="unknown">
+          <div class="opt-t">Unknown</div><div class="opt-d">Treated as ordinary occupancy — never as empty</div></label>
+      </div>
+    </section>
+
+    <section class="q">
+      <div class="q-head"><span class="q-num">07</span><span class="q-title">How do we know?</span></div>
+      <p class="q-help">Demoted from a tier to a qualifier. Evidence quality is a statement about proof, not about urgency — it changes the verb, the channel, and what the product is allowed to claim. It does not move the tier.</p>
+      <div class="opts" role="radiogroup" aria-label="Certainty">
+        <label class="opt"><input type="radio" name="certainty" value="confirmed" checked>
+          <div class="opt-t">Confirmed</div><div class="opt-d">The device reported it — fault code, lockout, sensor past a hard limit</div></label>
+        <label class="opt"><input type="radio" name="certainty" value="predicted">
+          <div class="opt-t">Predicted</div><div class="opt-d">A model or trend with a track record we could quote to a dealer</div></label>
+        <label class="opt"><input type="radio" name="certainty" value="inferred">
+          <div class="opt-t">Inferred</div><div class="opt-d">An anomaly we noticed; we would not defend it in a warranty dispute</div></label>
+      </div>
+    </section>
+
+    <section class="q">
+      <div class="q-head"><span class="q-num">08</span><span class="q-title">Is there something the recipient can do?</span></div>
+      <p class="q-help">The gate between an alert and a watch item. An alert nobody can close teaches people to stop reading the queue.</p>
+      <div class="opts" role="radiogroup" aria-label="Remedy">
+        <label class="opt"><input type="radio" name="remedy" value="known" checked>
+          <div class="opt-t">Yes — the remedy is known</div><div class="opt-d">Dispatch, remote reset, part order, schedule change</div></label>
+        <label class="opt"><input type="radio" name="remedy" value="diagnose">
+          <div class="opt-t">Partly — it needs diagnosis first</div></label>
+        <label class="opt"><input type="radio" name="remedy" value="none">
+          <div class="opt-t">No — nothing this recipient can do</div><div class="opt-d">Awareness only, or the remedy belongs outside this product</div></label>
+      </div>
+    </section>
+  </div>
+
+  <div id="path-state" hidden>
+    <section class="q">
+      <div class="q-head"><span class="q-num">03</span><span class="q-title">What is the state?</span></div>
+      <p class="q-help">State has no margin dimension and no lifecycle — it can't accrue, recur, or worsen on its own, so it isn't severity. It's a field on the record. The exception is named below.</p>
+      <div class="opts" role="radiogroup" aria-label="State">
+        <label class="opt"><input type="radio" name="state" value="online" checked><div class="opt-t">Online</div><div class="opt-d">Reporting normally</div></label>
+        <label class="opt"><input type="radio" name="state" value="offline"><div class="opt-t">Offline</div><div class="opt-d">Not reachable</div></label>
+        <label class="opt"><input type="radio" name="state" value="nodata"><div class="opt-t">No data</div><div class="opt-d">Connected, but a gap in history</div></label>
+        <label class="opt"><input type="radio" name="state" value="commissioning"><div class="opt-t">Commissioning incomplete</div><div class="opt-d">Never fully reported since install</div></label>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<!-- ================= VERDICT ================= -->
+<div class="right">
+  <div class="verdict" id="verdict">
+    <div class="v-top">
+      <div class="v-window" id="v-window">Respond today</div>
+      <div class="v-tier" id="v-tier">Critical</div>
+      <p class="v-sub" id="v-sub"></p>
+      <div class="v-flags" id="v-flags"></div>
+      <div class="ladder" id="ladder">
+        <div class="rung" data-r="ceased"><div class="rung-bar"></div><div class="rung-lab">Function has stopped</div></div>
+        <div class="rung" data-r="brink"><div class="rung-bar"></div><div class="rung-lab">At the limit, won't hold</div></div>
+        <div class="rung" data-r="compensating"><div class="rung-bar"></div><div class="rung-lab">Spending reserve, holding</div></div>
+        <div class="rung" data-r="full"><div class="rung-bar"></div><div class="rung-lab">Full margin</div></div>
+      </div>
+    </div>
+
+    <div class="v-sec">
+      <h3>What happens next</h3>
+      <div class="do" id="v-do">—</div>
+      <div class="do-who" id="v-who">—</div>
+    </div>
+
+    <div class="v-sec">
+      <h3>Interface treatment</h3>
+      <dl class="spec">
+        <dt>Placement</dt><dd id="s-place">—</dd>
+        <dt>Persistence</dt><dd id="s-persist">—</dd>
+        <dt>Notify</dt><dd id="s-notify">—</dd>
+        <dt>Queue</dt><dd id="s-queue">—</dd>
+      </dl>
+    </div>
+
+    <div class="v-sec">
+      <h3>What it looks like</h3>
+      <div class="preview-frame">
+        <div class="preview-caption" id="p-caption">Dealer queue</div>
+        <div id="p-slot"></div>
+        <div class="homeline" id="homeline">
+          <div class="homelab">Homeowner translation — the stake, not the tier</div>
+          <div class="hometext" id="p-home"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="v-sec">
+      <h3>How this was decided</h3>
+      <div class="trace" id="v-trace"></div>
+    </div>
+
+    <div class="v-foot">
+      <button class="act" id="copy-btn">Copy the ruling</button>
+      <button class="act ghost" id="reset-btn">Reset</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- ================= REFERENCE ================= -->
+<section class="band">
+  <div class="band-head">
+    <h2>Three tiers, defined by response</h2>
+    <p>Each tier is named for what it commits someone to. If nobody is on the hook for the window, the tier is a lie and the one below it is the honest answer. Info sits outside the scale entirely — it isn't a quieter severity, it's a different kind of fact.</p>
+  </div>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Tier</th><th>Response</th><th>Window</th><th>Placement</th><th>Persistence</th><th>Notification</th></tr></thead>
+    <tbody>
+      <tr><td class="tier" style="color:var(--critical)"><span class="swatch" style="background:var(--critical)"></span>Critical</td>
+        <td>Unplanned dispatch, out of sequence</td><td class="mono">Same day</td><td>Pinned above the queue, filled</td><td>Acknowledge or resolve — no dismiss</td><td>Push + SMS/email immediately</td></tr>
+      <tr><td class="tier" style="color:var(--medium)"><span class="swatch" style="background:var(--medium)"></span>Medium</td>
+        <td>Enters the schedule as its own visit</td><td class="mono">This cycle</td><td>In the queue, sorted by horizon</td><td>Snooze with a reason; returns</td><td>Same-day or daily digest</td></tr>
+      <tr><td class="tier" style="color:var(--low)"><span class="swatch" style="background:var(--low)"></span>Low</td>
+        <td>Rides along with work already booked</td><td class="mono">Next visit</td><td>Watch list, with first-seen date and count</td><td>Accrues; promotes itself on repetition</td><td>None — appears in the visit brief</td></tr>
+      <tr><td class="tier" style="color:var(--info)"><span class="swatch" style="background:var(--info)"></span>Info</td>
+        <td>Not a response — a fact</td><td class="mono">—</td><td>A field on the record</td><td>Reflects current state; no lifecycle</td><td>None</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <h2>Action by domain and tier</h2>
+    <p>The failure mode of the previous framework was an action column that didn't vary — three of four tiers dispatched a technician, and the middle tier said "update your set-point schedules" even in rows where set points aren't the lever. If two tiers produce the same action, only the adjective changed. Every cell here is a different response.</p>
+  </div>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Domain</th><th style="color:var(--critical)">Critical</th><th style="color:var(--medium)">Medium</th><th style="color:var(--low)">Low</th></tr></thead>
+    <tbody>
+      <tr><td class="tier">Safety &amp; air quality</td>
+        <td>Shut down or isolate, then notify the occupant contact. Making the space safe comes before the truck roll.</td>
+        <td>Book a combustion and IAQ inspection this cycle; document the readings for the file.</td>
+        <td>Add an IAQ verification step to the next scheduled visit.</td></tr>
+      <tr><td class="tier">Comfort &amp; climate</td>
+        <td>Dispatch today and set the customer's expectation before they call you.</td>
+        <td>Schedule a diagnostic visit; confirm the space is still holding in the meantime.</td>
+        <td>Review staging and set-point schedules at the next visit.</td></tr>
+      <tr><td class="tier">System health</td>
+        <td>Dispatch today with the likely part on the truck — the failure is in progress.</td>
+        <td>Quote and book the repair while it is still planned work, not an emergency.</td>
+        <td>Log the component to the watch list and check it at the next PM.</td></tr>
+      <tr><td class="tier">Energy</td>
+        <td>Only a live demand-limit breach: confirm the shed strategy is running and notify the account before the billing period closes.</td>
+        <td>Investigate the driver before the next billing cycle; compare against the unit's own baseline.</td>
+        <td>Carry into the quarterly efficiency review.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <h2>Rules the classifier enforces</h2>
+    <p>The rungs get you a defensible default. These are the cases where the default is wrong, and each one exists because it has already gone badly somewhere.</p>
+  </div>
+  <div class="rules">
+    <div class="rule-item"><div class="tagline">Floor</div><h3>Safety never drops below Critical once margin is gone</h3>
+      <p>If the domain is safety and the function has stopped or is at its limit, no modifier and no confidence level can bring the tier down. Uncertainty changes the wording, not the response.</p></div>
+    <div class="rule-item"><div class="tagline">Qualifier, not tier</div><h3>Confidence changes the sentence, not the urgency</h3>
+      <p>A predicted failure is as urgent as a confirmed one if it lands inside the same window. What confidence controls: the verb, whether the product may state a commitment, and whether a Critical is allowed to wake someone by SMS.</p></div>
+    <div class="rule-item"><div class="tagline">Promotion</div><h3>Repetition moves the rung, not the tier</h3>
+      <p>Spending reserve once is an observation. Spending it nightly is a condition. The object therefore needs a first-seen date and a count, and the pipeline must roll duplicates up rather than emit a row each time.</p></div>
+    <div class="rule-item"><div class="tagline">Context</div><h3>Occupancy is part of severity</h3>
+      <p>Sensitive occupancy promotes safety and comfort by one tier. An empty building demotes comfort by one — never safety, never system health. Unknown occupancy is treated as occupied, never as empty.</p></div>
+    <div class="rule-item"><div class="tagline">Sorting</div><h3>Low and Info are separated by whether it can change</h3>
+      <p>If it accrues, recurs, or worsens on its own, it is Low — a watch item with a date and a count. If it is a fact about right now with no lifecycle, it is Info. "Needs no action today" is not the test; both pass it.</p></div>
+    <div class="rule-item"><div class="tagline">Roll-up</div><h3>One condition, one row, highest tier</h3>
+      <p>A failing compressor is system health, comfort and energy at once. It appears once at its highest tier, with the other domains named as impacts, so the badge count stays a number a service manager can staff against.</p></div>
+    <div class="rule-item"><div class="tagline">Language</div><h3>Machine severity doesn't quote money</h3>
+      <p>Automated diagnosis paired with a dollar figure is a commercial representation the product may have to defend. State the condition and the domain impact; let the dealer price it.</p></div>
+    <div class="rule-item"><div class="tagline">Budget</div><h3>Critical is capped, not extended</h3>
+      <p>If more than a small share of live conditions sit at Critical, the tier has stopped meaning anything. The fix is demotion and better horizon data — never a fourth tier above it.</p></div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <h2>What changed from the four-tier model</h2>
+    <p>High disappeared as a rung and came back as two better-behaved inputs. "On the brink" is now split by <em>when</em> rather than by <em>how sure</em>, which removes the old bug where every predictive signal automatically ranked below every confirmed one — something that was never true. And the gray column stopped being a graveyard: quiet compensation is the earliest planned-repair signal a dealer gets, so it sits on a watch list that promotes itself, rather than expiring next to connectivity status.</p>
+  </div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <h2>Does it survive a real queue?</h2>
+    <p>A classifier that produces clean rulings one at a time can still fail the only test that matters — whether a service manager can find the two conditions that change their day among sixteen that don't. The companion view puts this model into a dealer's live book and lets you strip out the color, blur it, break the grouping, and flood it with noise.</p>
+  </div>
+  <a class="xlink" href="queue-pressure-test.html" style="font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:-.02em;text-transform:none;color:var(--ink);border-bottom-width:2px;border-color:var(--ink);padding-bottom:4px">Open the queue pressure test →</a>
+</section>
+
+<footer>
+  <span>Event severity classifier · v2 · working draft for review</span>
+  <span>Scenarios and identifiers shown here are fictional.</span>
+</footer>
+
+</div>
+
+
+
+</div>
+
+<div id="view-queue" hidden>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="mast-rule">
+    <a class="back" href="severity-classifier-v2.html">← Back to the classifier</a>
+    <span class="eyebrow">Queue pressure test · dealer view · Tuesday 7:42am</span>
+  </div>
+  <h1>Can you find the two that matter?</h1>
+  <p class="lede">A dealer's live book on an ordinary morning: sixteen conditions, two of which change someone's day. The classifier is only useful if <strong>priority survives contact with volume</strong> — so this view is deliberately realistic rather than flattering. Use the controls to strip the color out, blur it, break the grouping, and flood it with noise. If Critical still finds you, the model holds.</p>
+</header>
+
+<div class="controls">
+  <div class="ctrl"><span class="ctrl-lab">Grouping</span>
+    <div class="seg" id="seg-sort">
+      <button data-v="grouped" aria-pressed="true">By response</button>
+      <button data-v="recency" aria-pressed="false">By recency</button>
+      <button data-v="site" aria-pressed="false">By site</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-lab">Stress</span>
+    <div class="seg" id="seg-stress">
+      <button data-v="mono" aria-pressed="false">No color</button>
+      <button data-v="squint" aria-pressed="false">Squint</button>
+      <button data-v="compact" aria-pressed="false">Dense</button>
+      <button data-v="flood" aria-pressed="false">Flood with noise</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-lab">Showing</span><span class="eyebrow" id="tally" style="color:var(--ink-2)"></span></div>
+</div>
+
+<div class="stage" id="stage"></div>
+
+<div class="wrap" style="padding:0"><div class="aside">
+  <h3>Not in the queue — state, not severity</h3>
+  <div id="states"></div>
+  <p>These are facts about the product, not about the equipment. They live on the record and never take a row, a color, or a place in the badge count. The moment one of them hides a monitoring commitment the dealer sold, it becomes a System health condition and enters the queue on its own terms.</p>
+</div></div>
+
+<section class="band">
+  <div class="band-head">
+    <h2>What each control is testing</h2>
+    <p>These aren't demo toggles. Each one corresponds to a way this queue will actually be encountered — on a phone in a truck, at a glance between calls, sorted by someone who prefers chronology, on a bad month.</p>
+  </div>
+  <div class="tests">
+    <div class="test"><div class="tagline">No color</div>
+      <h3>Roughly one in twelve technicians can't use red-versus-amber</h3>
+      <p>Strip saturation and the hierarchy has to survive on fill, weight, border style and position. Critical is the only filled row; Low is the only dashed one. If you can still sort the list without hue, the tiers are carried by structure rather than decoration.</p></div>
+    <div class="test"><div class="tagline">Squint</div>
+      <h3>The glance test, at arm's length in a truck</h3>
+      <p>Blur removes everything but mass and position. Two dark blocks should remain legible at the top. If Medium and Critical smear into the same shape, the treatment gap between "go today" and "book it" is too small.</p></div>
+    <div class="test"><div class="tagline">By recency / by site</div>
+      <h3>Users re-sort, and grouping is not a safety net</h3>
+      <p>Grouping by response makes priority trivially findable — which is cheating. Break the grouping and the row treatment has to carry it alone. This is the honest test, and the one most severity systems fail.</p></div>
+    <div class="test"><div class="tagline">Flood</div>
+      <h3>The Critical budget, made visible</h3>
+      <p>Adding eighteen more Low conditions is what a bad month or a loose threshold looks like. Critical count stays at two. If the top of the queue still reads clearly, the tier is holding its meaning; if it drowns, the answer is demotion, not a new tier above it.</p></div>
+    <div class="test"><div class="tagline">Dense</div>
+      <h3>Scanning versus reading</h3>
+      <p>Drop the condition line and the row is reduced to subject, tier and tags. A service manager assigning a day works in this mode. Anything the model needs to communicate has to survive the loss of the sentence.</p></div>
+    <div class="test"><div class="tagline">Look for</div>
+      <h3>The two rows carrying a qualifier</h3>
+      <p>One Medium is marked <em>Predicted</em>, one Low is marked <em>Unconfirmed</em>. Their tiers come from margin and horizon; the flag only tells you how much to trust the sentence. Confidence changed the label, not the position — that's the v2 change made visible.</p></div>
+  </div>
+</section>
+
+<footer>
+  <span>Queue pressure test · companion to the severity classifier v2</span>
+  <span>All sites, addresses and equipment shown here are fictional.</span>
+</footer>
+
+</div>
+
+
+
+</div>
+
+<script>
+
+(function(){
+"use strict";
+var $=function(i){return document.getElementById(i)};
+function get(n){var e=document.querySelector('input[name="'+n+'"]:checked');return e?e.value:null}
+function set(n,v){var e=document.querySelector('input[name="'+n+'"][value="'+v+'"]');if(e)e.checked=true}
+function alsoVals(){return Array.prototype.slice.call(document.querySelectorAll('input[name="also"]:checked')).map(function(e){return e.value})}
+
+var ORDER=["low","medium","critical"];
+var DOMAIN={
+  safety:{label:"Safety & air quality",stake:"the air in the building",home:"the air in your home"},
+  comfort:{label:"Comfort & climate",stake:"the conditioned space",home:"your home staying comfortable"},
+  health:{label:"System health",stake:"the equipment",home:"how long your system lasts"},
+  energy:{label:"Energy",stake:"consumption and demand",home:"your energy bill"}
+};
+var TIER={
+  critical:{name:"Critical",window:"Respond today",tone:"var(--critical)",
+    sub:"Unplanned dispatch, out of sequence.",
+    place:"Pinned above the queue, filled treatment",
+    persist:"Acknowledge or resolve — no dismiss",
+    notify:"Push + SMS/email, immediately",
+    queue:"Counts in the badge; sorts first",
+    filled:true,caption:"Dealer queue",cta:"Dispatch"},
+  medium:{name:"Medium",window:"Respond this cycle",tone:"var(--medium)",
+    sub:"Enters the schedule as its own visit.",
+    place:"In the queue, sorted by horizon",
+    persist:"Snooze with a reason; returns on schedule",
+    notify:"Same-day or daily digest",
+    queue:"Counts in the badge; sorts by horizon",
+    filled:false,caption:"Dealer queue",cta:"Schedule"},
+  low:{name:"Low",window:"Catch it on the next visit",tone:"var(--low)",
+    sub:"Rides along with work already booked.",
+    place:"Watch list, with first-seen date and count",
+    persist:"Accrues; promotes itself on repetition",
+    notify:"None — appears in the visit brief",
+    queue:"Excluded from the badge",
+    filled:false,caption:"Watch list",cta:"Add to next visit"},
+  info:{name:"Info",window:"No response",tone:"var(--info)",
+    sub:"A fact about current state, not a severity.",
+    place:"A field on the equipment record",
+    persist:"Reflects current state; no lifecycle",
+    notify:"None",
+    queue:"Never queued",
+    filled:false,caption:"Equipment record",cta:null}
+};
+
+var ACTION={
+  safety:{critical:["Shut down or isolate the equipment, then notify the occupant contact. Making the space safe comes before the truck roll.","Dispatcher + account owner"],
+          medium:["Book a combustion and IAQ inspection this cycle and document the readings for the file.","Service coordinator"],
+          low:["Add an IAQ verification step to the next scheduled visit.","Technician, next visit"]},
+  comfort:{critical:["Dispatch today and set the customer's expectation before they call you.","Dispatcher"],
+           medium:["Schedule a diagnostic visit; confirm the space is still holding in the meantime.","Service coordinator"],
+           low:["Review staging and set-point schedules at the next visit.","Technician, next visit"]},
+  health:{critical:["Dispatch today with the likely part on the truck — the failure is in progress.","Dispatcher + parts"],
+          medium:["Quote and book the repair while it is still planned work, not an emergency.","Service manager"],
+          low:["Log the component to the watch list and check it at the next PM.","Technician, next visit"]},
+  energy:{critical:["Confirm the shed strategy is running and notify the account before the billing period closes.","Account manager"],
+          medium:["Investigate the driver before the next billing cycle; compare against this unit's own baseline.","Service coordinator"],
+          low:["Carry into the quarterly efficiency review.","Account manager, quarterly"]}
+};
+
+var STATE={
+  online:{tone:"var(--success)",text:"Thermostat is online · last reported 4 minutes ago.",
+    note:"Nominal. Don't decorate it — a badge on every healthy row costs you the ability to see the unhealthy one.",
+    home:"Your system is connected."},
+  offline:{tone:"var(--info)",text:"Thermostat is offline · last reported 6 hours ago.",
+    note:"Status, not severity. The exception: if the account pays for monitoring, the blind spot itself is a condition event in System health — classify that separately.",
+    home:"We've lost contact with your thermostat. Your system keeps running on its own settings."},
+  nodata:{tone:"var(--info)",text:"No data for the last 48 hours · history resumes before that.",
+    note:"A gap is a data-quality fact. It becomes severity only if it hides a monitoring commitment you sold.",
+    home:"Some recent activity is missing from your history."},
+  commissioning:{tone:"var(--info)",text:"Commissioning incomplete · this unit has never fully reported.",
+    note:"Point at the install step, not at the equipment. Nothing here is wrong with the machine.",
+    home:"Setup isn't finished yet."}
+};
+
+var VERB={confirmed:"has",predicted:"is likely to",inferred:"may be"};
+
+var PRESETS={
+  co:{domain:"safety",margin:"ceased",repetition:"first",horizon:"hours",occupancy:"sensitive",certainty:"confirmed",remedy:"known",also:["comfort"]},
+  noheat:{domain:"comfort",margin:"ceased",repetition:"first",horizon:"hours",occupancy:"normal",certainty:"confirmed",remedy:"known",also:["health"]},
+  aux:{domain:"comfort",margin:"compensating",repetition:"persistent",horizon:"weeks",occupancy:"normal",certainty:"confirmed",remedy:"diagnose",also:["energy","health"]},
+  inducer:{domain:"health",margin:"brink",repetition:"recurring",horizon:"weeks",occupancy:"normal",certainty:"predicted",remedy:"known",also:["comfort"]},
+  defrost:{domain:"health",margin:"compensating",repetition:"first",horizon:"open",occupancy:"normal",certainty:"inferred",remedy:"none",also:[]},
+  demand:{domain:"energy",margin:"ceased",repetition:"first",horizon:"hours",occupancy:"normal",certainty:"confirmed",remedy:"known",also:[]},
+  night:{domain:"comfort",margin:"brink",repetition:"recurring",horizon:"days",occupancy:"off",certainty:"confirmed",remedy:"known",also:["energy"]},
+  offline:{domain:"state",state:"offline"}
+};
+
+function up(t){var i=ORDER.indexOf(t);return i<0?t:ORDER[Math.min(ORDER.length-1,i+1)]}
+function down(t){var i=ORDER.indexOf(t);return i<0?t:ORDER[Math.max(0,i-1)]}
+
+function classify(){
+  var d=get("domain");
+  if(d==="state"){
+    var s=get("state");
+    return {kind:"info",tier:TIER.info,tone:STATE[s].tone,margin:null,
+      text:STATE[s].text,home:STATE[s].home,flags:["State"],
+      trace:[["·","State has no margin dimension and cannot promote itself over time, so it is Info rather than Low."],["·",STATE[s].note]],
+      action:["No response required — this is a field on the record, not a row in the queue.","No owner"]};
+  }
+
+  var margin=get("margin"), rep=get("repetition"), hz=get("horizon"),
+      occ=get("occupancy"), cert=get("certainty"), rem=get("remedy");
+  var trace=[], flags=[];
+
+  // --- rung, after repetition promotion ---
+  var rung=margin;
+  if(margin==="compensating" && (rep==="recurring"||rep==="persistent")){
+    rung="repeated";
+    trace.push(["▲","Repetition promoted the rung: reserve is being spent "+(rep==="persistent"?"continuously":"repeatedly")+", so this is a condition, not an observation."]);
+  }
+
+  // --- base tier from rung ---
+  var tier, why;
+  if(rung==="ceased"){ tier="critical"; why="The function has stopped — no margin left."; }
+  else if(rung==="brink"){
+    if(hz==="hours"||hz==="days"){ tier="critical"; why="At the limit, and it stops holding inside the response window."; }
+    else { tier="medium"; why="At the limit, but not for weeks — that is planned work, not an emergency."; }
+  }
+  else if(rung==="repeated"){ tier="medium"; why="Compensation is now routinely required."; }
+  else { tier="low"; why="Reserve is being spent, and the line is holding."; }
+  trace.unshift(["·",why+" Base tier: "+TIER[tier].name+"."]);
+
+  // --- safety floor ---
+  if(d==="safety" && (rung==="ceased"||rung==="brink") && tier!=="critical"){
+    tier="critical";
+    trace.push(["▲","Safety floor: once margin is gone in the safety domain, nothing brings the tier down."]);
+  }
+
+  // --- occupancy ---
+  if((d==="safety"||d==="comfort") && occ==="sensitive" && (rung==="ceased"||rung==="brink"||rung==="repeated")){
+    if(tier!=="critical"){ tier=up(tier); trace.push(["▲","Sensitive occupancy promoted this one tier — same margin, higher exposure."]); }
+    else trace.push(["·","Sensitive occupancy noted; already at Critical."]);
+    flags.push("Sensitive occupancy");
+  }
+  if(d==="comfort" && occ==="off" && tier!=="low"){
+    tier=down(tier);
+    trace.push(["▲","Building is empty — comfort demoted one tier. This never applies to safety or system health."]);
+    flags.push("Off-hours");
+  }
+  if(occ==="unknown") trace.push(["·","Occupancy unknown, treated as occupied. Never assume empty."]);
+
+  // --- energy guard ---
+  if(d==="energy" && tier==="critical" && rung!=="ceased"){
+    tier="medium";
+    trace.push(["▲","Energy has no imminent-failure Critical — over-consumption is billed, not catastrophic. Only a live demand-limit breach earns Critical here."]);
+  }
+
+  // --- remedy gate ---
+  var watch=false;
+  if(rem==="none"){
+    if(d==="safety" && tier==="critical"){
+      trace.push(["▲","No local remedy, but a safety Critical is never silenced — it escalates to whoever can act instead of dropping tier."]);
+      flags.push("Escalate outward");
+    } else if(tier!=="low"){
+      tier="low"; watch=true;
+      trace.push(["▲","Nothing the recipient can do, so this is a watch item rather than an alert. It keeps its date and count and can promote itself later."]);
+    } else { watch=true; }
+  }
+  if(rem==="diagnose") flags.push("Needs diagnosis");
+
+  // --- certainty: qualifier only ---
+  if(cert==="confirmed"){
+    trace.push(["·","Confirmed by the device. Full treatment for the tier."]);
+  } else if(cert==="predicted"){
+    flags.push("Predicted");
+    trace.push(["·","Predicted — tier unchanged. Confidence sets the verb and the channel, not the urgency."+(tier==="critical"?" SMS is withheld: a prediction doesn't wake someone.":"")]);
+  } else {
+    flags.push("Unconfirmed");
+    trace.push(["·","Inferred — tier unchanged, but the row carries an unconfirmed label, cannot auto-dispatch, and is not exposed to the homeowner without dealer review."]);
+  }
+
+  if(watch) flags.push("Watch item");
+
+  var also=alsoVals().filter(function(x){return x!==d});
+  if(also.length){
+    trace.push(["·","Also affects "+also.map(function(a){return DOMAIN[a].label.toLowerCase()}).join(" and ")+". One row at the highest tier; the others are carried as named impacts."]);
+    flags.push("+"+also.length+" domain"+(also.length>1?"s":""));
+  }
+
+  // --- copy ---
+  var verb=VERB[cert];
+  var subject={safety:"Rooftop unit 3, Lincoln Elementary",comfort:"Air handler, 41 Oakfield Ln",health:"Heat pump, 41 Oakfield Ln",energy:"Rooftop unit 3, Lincoln Elementary"}[d];
+  var body;
+  if(rung==="ceased") body=(d==="energy"?"demand limit "+verb+" been exceeded — load shed is active":subject.split(",")[0].toLowerCase()+" "+verb+" stopped maintaining "+DOMAIN[d].stake);
+  else if(rung==="brink") body="running at its limit and "+verb+" stop holding "+DOMAIN[d].stake+" "+({hours:"today",days:"this week",weeks:"within weeks",open:"eventually"}[hz]);
+  else if(rung==="repeated") body="repeatedly using reserve capacity to hold "+DOMAIN[d].stake;
+  else body="used unexpected reserve capacity to hold "+DOMAIN[d].stake;
+  var text=subject+" — "+(rung==="ceased"&&d==="energy"?body:body)+".";
+  if(tier==="critical") text+=" "+({safety:"Isolate and notify the site.",comfort:"Dispatch today.",health:"Dispatch today.",energy:"Confirm the shed strategy."}[d]);
+  else if(tier==="medium") text+=" Book it this cycle.";
+
+  var homeStake=DOMAIN[d].home;
+  var home;
+  if(tier==="critical") home="Your system can't keep up right now, so "+homeStake+" is affected. Your dealer has been notified and is responding today.";
+  else if(tier==="medium") home="Your system is working harder than it should to protect "+homeStake+". Your dealer is scheduling a visit.";
+  else home="Your system is quietly compensating to protect "+homeStake+". Nothing to do — your dealer will look at it on the next visit.";
+  if(cert==="inferred") home="—  withheld from the homeowner until a dealer confirms it.";
+
+  return {kind:"cond",tier:TIER[tier],tone:TIER[tier].tone,margin:rung,text:text,home:home,
+    flags:flags,trace:trace,action:ACTION[d][tier],tierKey:tier,domain:d};
+}
+
+function render(){
+  var d=get("domain");
+  $("path-condition").hidden = d==="state";
+  $("path-state").hidden = d!=="state";
+  $("q-also").hidden = d==="state";
+  $("q-horizon").hidden = (d==="state" || get("margin")!=="brink");
+
+  document.querySelectorAll('input[name="also"]').forEach(function(cb){
+    var same = cb.value===d;
+    cb.disabled = same;
+    if(same) cb.checked=false;
+  });
+
+  var r=classify(), t=r.tier;
+  $("verdict").style.setProperty("--tone", r.tone);
+
+  $("v-window").textContent=t.window;
+  $("v-tier").textContent=t.name;
+  $("v-sub").textContent=t.sub;
+
+  $("v-flags").innerHTML=r.flags.map(function(f){
+    var hot=/Sensitive|Escalate|Unconfirmed/.test(f);
+    return '<span class="flag'+(hot?" hot":"")+'">'+f+'</span>';
+  }).join("");
+
+  // ladder
+  var rungIndex={ceased:0,brink:1,repeated:2,compensating:2,full:3};
+  var idx = r.margin==null ? -1 : rungIndex[r.margin];
+  document.querySelectorAll("#ladder .rung").forEach(function(el,i){
+    el.classList.toggle("on", i===idx);
+    el.classList.toggle("past", idx>=0 && i>idx);
+  });
+  $("ladder").style.opacity = idx<0 ? ".28" : "1";
+  if(r.margin==="repeated") document.querySelector('#ladder .rung[data-r="compensating"] .rung-lab').textContent="Repeatedly spending reserve";
+  else document.querySelector('#ladder .rung[data-r="compensating"] .rung-lab').textContent="Spending reserve, holding";
+
+  $("v-do").textContent=r.action[0];
+  $("v-who").textContent=r.action[1];
+
+  $("s-place").textContent=t.place;
+  $("s-persist").textContent=t.persist;
+  $("s-notify").textContent=(r.kind==="cond"&&t.name==="Critical"&&r.flags.indexOf("Predicted")>-1)?"Push + email, immediately — SMS withheld":t.notify;
+  $("s-queue").textContent=t.queue;
+
+  $("p-caption").textContent=t.caption;
+  if(r.kind==="info"){
+    $("p-slot").innerHTML='<div class="statusline"><span class="a-dot"></span><span>'+r.text+'</span></div>';
+  } else {
+    $("p-slot").innerHTML='<div class="alert'+(t.filled?" filled":"")+'"><span class="a-dot"></span><div class="a-body">'+
+      '<div class="a-meta">'+t.name+' · '+t.window.toLowerCase()+'</div>'+
+      '<div class="a-text">'+r.text+'</div>'+
+      (t.cta?'<div class="a-cta">'+t.cta+'</div>':'')+'</div></div>';
+  }
+  $("p-home").textContent=r.home;
+
+  $("v-trace").innerHTML=r.trace.map(function(x){
+    return '<div class="t'+(x[0]==="▲"?" mv":"")+'"><span class="m">'+x[0]+'</span><span>'+x[1]+'</span></div>';
+  }).join("");
+
+  window.__r=r;
+}
+
+function ruleText(){
+  var r=window.__r,t=r.tier,L=[];
+  L.push("EVENT SEVERITY RULING — v2 margin model");
+  L.push("Domain:        "+(r.domain?DOMAIN[r.domain].label:"System / link state"));
+  L.push("Tier:          "+t.name);
+  L.push("Response:      "+t.window+" — "+t.sub);
+  if(r.margin) L.push("Margin rung:   "+r.margin);
+  if(r.flags.length) L.push("Flags:         "+r.flags.join(", "));
+  L.push("");
+  L.push("WHAT HAPPENS NEXT");
+  L.push("  "+r.action[0]);
+  L.push("  Owner: "+r.action[1]);
+  L.push("");
+  L.push("TREATMENT");
+  L.push("  Placement:   "+t.place);
+  L.push("  Persistence: "+t.persist);
+  L.push("  Notify:      "+t.notify);
+  L.push("  Queue:       "+t.queue);
+  L.push("");
+  L.push("COPY");
+  L.push("  Dealer:     "+r.text);
+  L.push("  Homeowner:  "+r.home);
+  L.push("");
+  L.push("HOW THIS WAS DECIDED");
+  r.trace.forEach(function(x){L.push("  "+(x[0]==="▲"?"> ":"- ")+x[1])});
+  return L.join("\n");
+}
+
+document.addEventListener("change",function(e){ if(e.target.matches("input")) render(); });
+
+document.querySelectorAll(".chip").forEach(function(b){
+  b.addEventListener("click",function(){
+    var p=PRESETS[b.dataset.preset];
+    document.querySelectorAll('input[name="also"]').forEach(function(cb){cb.checked=false});
+    Object.keys(p).forEach(function(k){
+      if(k==="also") p.also.forEach(function(v){
+        var cb=document.querySelector('input[name="also"][value="'+v+'"]'); if(cb)cb.checked=true;
+      });
+      else set(k,p[k]);
+    });
+    render();
+    if(window.innerWidth<=1060) $("verdict").scrollIntoView({behavior:"smooth",block:"start"});
+  });
+});
+
+$("copy-btn").addEventListener("click",function(){
+  var txt=ruleText(),b=$("copy-btn"),old=b.textContent;
+  function done(){b.textContent="Copied";setTimeout(function(){b.textContent=old},1400)}
+  function fb(){var ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();
+    try{document.execCommand("copy");done()}catch(e){b.textContent="Copy failed"}document.body.removeChild(ta)}
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done,fb); else fb();
+});
+
+$("reset-btn").addEventListener("click",function(){
+  document.querySelectorAll('input[name="also"]').forEach(function(cb){cb.checked=false});
+  set("domain","comfort");set("margin","brink");set("repetition","first");set("horizon","hours");
+  set("occupancy","normal");set("certainty","confirmed");set("remedy","known");set("state","online");
+  render();
+});
+
+render();
+})();
+
+</script>
+<script>
+
+(function(){
+"use strict";
+var $=function(i){return document.getElementById(i)};
+
+var TIER={
+  critical:{name:"Critical",win:"Today",tone:"var(--critical)",owner:"Dispatcher"},
+  medium:{name:"Medium",win:"This cycle",tone:"var(--medium)",owner:"Coordinator"},
+  low:{name:"Low",win:"Next visit",tone:"var(--low)",owner:"Technician"}
+};
+var GROUPS=[
+  {k:"critical",h:"Go today",w:"Unplanned dispatch, out of sequence"},
+  {k:"medium",h:"Put it on the schedule",w:"Its own visit, this cycle"},
+  {k:"low",h:"Watch list",w:"Rides along with work already booked"}
+];
+
+var DATA=[
+  {t:"critical",site:"Lincoln Elementary",subj:"RTU-3 · Lincoln Elementary",
+   cond:"Carbon monoxide above threshold in the return. Heat exchanger suspected.",
+   dom:"Safety",also:["Comfort"],tags:["Sensitive occupancy"],cta:"Isolate & notify",owner:"Dispatcher + account",mins:12},
+  {t:"critical",site:"41 Oakfield Ln",subj:"Furnace · 41 Oakfield Ln",
+   cond:"Not maintaining set point. Space at 51°F and falling, outdoor 8°F.",
+   dom:"Comfort",also:["System health"],tags:[],cta:"Dispatch",owner:"Dispatcher",mins:38},
+
+  {t:"medium",site:"77 Verrill Ct",subj:"Condenser · 77 Verrill Ct",
+   cond:"Charge low and superheat climbing. Loses capacity later this week.",
+   dom:"System health",also:["Comfort","Energy"],tags:[],cta:"Schedule",owner:"Coordinator",mins:95},
+  {t:"medium",site:"218 Marbury Rd",subj:"Heat pump · 218 Marbury Rd",
+   cond:"Inducer motor drawing above spec. Likely no-heat call within weeks.",
+   dom:"System health",also:["Comfort"],tags:["Predicted"],cta:"Quote & book",owner:"Service manager",mins:150},
+  {t:"medium",site:"Lincoln Elementary",subj:"AHU-2 · Lincoln Elementary gym",
+   cond:"Aux heat running nightly for three weeks to hold the space.",
+   dom:"Comfort",also:["Energy","System health"],tags:["Sensitive occupancy","3 weeks"],cta:"Schedule",owner:"Coordinator",mins:210},
+  {t:"medium",site:"Halsted Dental",subj:"RTU-1 · Halsted Dental",
+   cond:"At full stage through the afternoon peak. Holds until next week.",
+   dom:"Comfort",also:[],tags:[],cta:"Schedule",owner:"Coordinator",mins:280},
+  {t:"medium",site:"Lincoln Elementary",subj:"RTU-2 · Lincoln Elementary",
+   cond:"Approaching the contracted demand limit for the billing period.",
+   dom:"Energy",also:[],tags:[],cta:"Review strategy",owner:"Account manager",mins:330},
+
+  {t:"low",site:"9 Cranbrook Rd",subj:"Heat pump · 9 Cranbrook Rd",
+   cond:"One unexpected defrost cycle outside normal conditions.",
+   dom:"System health",also:[],tags:["First seen 3d ago","1×"],cta:"Add to next visit",owner:"Technician",mins:420},
+  {t:"low",site:"512 Ashbury St",subj:"Furnace · 512 Ashbury St",
+   cond:"Filter life at 15%. Airflow beginning to drop.",
+   dom:"Comfort",also:["Energy"],tags:["First seen 9d ago"],cta:"Add to next visit",owner:"Technician",mins:520},
+  {t:"low",site:"88 Pell St",subj:"AHU · 88 Pell St",
+   cond:"Runtime up 8% against the same month last year.",
+   dom:"Energy",also:[],tags:["Unconfirmed"],cta:"Quarterly review",owner:"Account manager",mins:610},
+  {t:"low",site:"Halsted Dental",subj:"RTU-4 · Halsted Dental",
+   cond:"Missed overnight setback. Building unoccupied at the time.",
+   dom:"Comfort",also:["Energy"],tags:["Off-hours"],cta:"Add to next visit",owner:"Technician",mins:700},
+  {t:"low",site:"120 Weyburn Ave",subj:"Furnace · 120 Weyburn Ave",
+   cond:"Flame sensor cleaning interval reached.",
+   dom:"System health",also:[],tags:["First seen 21d ago"],cta:"Add to next visit",owner:"Technician",mins:780},
+  {t:"low",site:"33 Dunmore Ct",subj:"Heat pump · 33 Dunmore Ct",
+   cond:"One extended run cycle during the cold snap.",
+   dom:"Comfort",also:[],tags:["1×"],cta:"Add to next visit",owner:"Technician",mins:840},
+  {t:"low",site:"6 Larkin Way",subj:"Heat pump · 6 Larkin Way",
+   cond:"Indoor humidity drifting above target on mild days.",
+   dom:"Comfort",also:[],tags:["First seen 5d ago"],cta:"Add to next visit",owner:"Technician",mins:910},
+  {t:"low",site:"250 Foxhall Rd",subj:"Condenser · 250 Foxhall Rd",
+   cond:"Start capacitor trending toward the low end of tolerance.",
+   dom:"System health",also:[],tags:["Unconfirmed"],cta:"Add to next visit",owner:"Technician",mins:980},
+  {t:"low",site:"14 Bexley Row",subj:"Furnace · 14 Bexley Row",
+   cond:"Short cycling twice on Sunday morning.",
+   dom:"System health",also:["Comfort"],tags:["2×"],cta:"Add to next visit",owner:"Technician",mins:1060}
+];
+
+var NOISE_SITES=["31 Halloway Dr","9 Pinemill Ct","404 Grayson Ave","72 Wexford Ln","118 Sartell Rd","5 Ivybridge Way","260 Calder St","83 Marne Ct","17 Rothbury Rd"];
+var NOISE_COND=["Filter life below 25%.","Runtime up 4% month over month.","One extended cycle during the cold snap.","Humidity drifting above target.","Setback missed once overnight.","Flame sensor interval reached."];
+var NOISE=[];
+for(var i=0;i<18;i++){
+  NOISE.push({t:"low",site:NOISE_SITES[i%NOISE_SITES.length],
+    subj:(i%2?"Furnace · ":"Heat pump · ")+NOISE_SITES[i%NOISE_SITES.length],
+    cond:NOISE_COND[i%NOISE_COND.length],
+    dom:(i%3===0?"Energy":i%3===1?"Comfort":"System health"),also:[],
+    tags:["First seen "+(2+i)+"d ago"],cta:"Add to next visit",owner:"Technician",mins:1200+i*40,noise:true});
+}
+
+var sort="grouped", stress={mono:false,squint:false,compact:false,flood:false};
+
+function ago(m){ if(m<60) return m+" min ago"; var h=Math.round(m/60); if(h<24) return h+"h ago"; return Math.round(h/24)+"d ago"; }
+
+function rowHTML(d){
+  var T=TIER[d.t];
+  var tags="";
+  tags+='<span class="tag dom">'+d.dom+'</span>';
+  d.also.forEach(function(a){ tags+='<span class="tag dom">+ '+a+'</span>' });
+  d.tags.forEach(function(x){
+    var hot=/Sensitive|Predicted|Unconfirmed/.test(x);
+    tags+='<span class="tag'+(hot?" hot":"")+'">'+x+'</span>';
+  });
+  tags+='<span class="tag" style="border:0;padding-left:2px">'+ago(d.mins)+'</span>';
+  return '<div class="row '+d.t+'" style="--tone:'+T.tone+'">'+
+    '<div class="stripe"></div>'+
+    '<div class="slot-tier"><span class="tier-name">'+T.name+'</span><span class="tier-win">'+T.win+'</span></div>'+
+    '<div class="slot-body"><div class="subject">'+d.subj+'</div>'+
+      '<div class="condition">'+d.cond+'</div>'+
+      '<div class="metaline">'+tags+'</div></div>'+
+    '<div class="slot-act"><span class="cta">'+d.cta+'</span><span class="owner">'+d.owner+'</span></div>'+
+  '</div>';
+}
+
+function render(){
+  var rows=DATA.concat(stress.flood?NOISE:[]);
+  var html="";
+  if(sort==="grouped"){
+    GROUPS.forEach(function(g){
+      var set=rows.filter(function(r){return r.t===g.k});
+      if(!set.length) return;
+      set.sort(function(a,b){return a.mins-b.mins});
+      html+='<div class="groupbar"><h2>'+g.h+'</h2><span class="count">'+set.length+'</span><span class="win">'+g.w+'</span></div>';
+      set.forEach(function(r){html+=rowHTML(r)});
+    });
+  } else {
+    if(sort==="recency") rows.sort(function(a,b){return a.mins-b.mins});
+    else rows.sort(function(a,b){return a.site.localeCompare(b.site)||a.mins-b.mins});
+    rows.forEach(function(r){html+=rowHTML(r)});
+  }
+  $("stage").innerHTML=html;
+  $("stage").classList.toggle("flat",sort!=="grouped");
+
+  var c=rows.filter(function(r){return r.t==="critical"}).length,
+      m=rows.filter(function(r){return r.t==="medium"}).length,
+      l=rows.filter(function(r){return r.t==="low"}).length;
+  $("tally").textContent=c+" critical · "+m+" medium · "+l+" low  ("+Math.round(c/rows.length*100)+"% critical)";
+
+  document.body.classList.toggle("mono-view",stress.mono);
+  document.body.classList.toggle("squint-view",stress.squint);
+  document.body.classList.toggle("compact",stress.compact);
+}
+
+$("states").innerHTML=[
+  ["var(--info)","Thermostat · 6 Larkin Way","Offline · last reported 6 hours ago"],
+  ["var(--info)","AHU · 88 Pell St","No data for 48 hours · history resumes before that"],
+  ["var(--info)","RTU-5 · Halsted Dental","Commissioning incomplete · never fully reported"],
+  ["var(--success)","All other equipment","Online and reporting"]
+].map(function(s){
+  return '<div class="staterow"><span class="dot" style="background:'+s[0]+'"></span><span class="who">'+s[1]+'</span><span class="what">'+s[2]+'</span></div>';
+}).join("");
+
+$("seg-sort").addEventListener("click",function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  sort=b.dataset.v;
+  Array.prototype.forEach.call(this.children,function(x){x.setAttribute("aria-pressed",String(x===b))});
+  render();
+});
+$("seg-stress").addEventListener("click",function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  var k=b.dataset.v; stress[k]=!stress[k];
+  b.setAttribute("aria-pressed",String(stress[k]));
+  render();
+});
+
+render();
+})();
+
+</script>
+<script>
+(function(){
+  var vc=document.getElementById("view-classifier"), vq=document.getElementById("view-queue");
+  var bc=document.getElementById("nav-classifier"), bq=document.getElementById("nav-queue");
+  function show(which){
+    var q = which==="queue";
+    vq.hidden=!q; vc.hidden=q;
+    bq.setAttribute("aria-pressed",String(q));
+    bc.setAttribute("aria-pressed",String(!q));
+    window.scrollTo({top:0,behavior:"instant"});
+  }
+  bc.addEventListener("click",function(){show("classifier")});
+  bq.addEventListener("click",function(){show("queue")});
+  document.addEventListener("click",function(e){
+    var a=e.target.closest("a[href]"); if(!a) return;
+    var h=a.getAttribute("href")||"";
+    if(h.indexOf("queue-pressure-test")>-1){e.preventDefault();show("queue")}
+    else if(h.indexOf("severity-classifier")>-1){e.preventDefault();show("classifier")}
+  });
+})();
+</script>
+</body>
+</html>
