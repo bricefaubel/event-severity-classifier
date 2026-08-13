@@ -243,6 +243,34 @@ h1{font-size:clamp(30px,4.4vw,50px);line-height:1.03;max-width:18ch}
 .row.low .subject{font-weight:500}
 .row.low .cta{border-color:var(--rule);color:var(--ink-3)}
 
+/* ---------- grid view ---------- */
+.stage.grid-view{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:10px;align-items:stretch}
+.stage.grid-view .groupbar{grid-column:1/-1;margin:22px 0 2px}
+.stage.grid-view .groupbar:first-child{margin-top:0}
+.stage.grid-view .row{
+  grid-template-columns:1fr;grid-template-rows:5px auto 1fr auto;
+  margin-bottom:0;height:100%;
+}
+.stage.grid-view .stripe{height:5px;width:auto}
+.stage.grid-view .slot-tier{flex-direction:row;align-items:baseline;gap:9px;padding:12px 16px 0;background:transparent}
+.stage.grid-view .slot-body{padding:7px 16px 14px}
+.stage.grid-view .slot-act{border-left:0;border-top:1px solid var(--rule-2);padding:10px 16px;
+  flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+
+/* mass as a severity channel — survives greyscale and blur */
+@media(min-width:780px){ .stage.grid-view .row.critical{grid-column:span 2} }
+.stage.grid-view .row.critical{background:var(--critical);border-color:var(--critical);color:#fff}
+.stage.grid-view .row.critical .stripe{background:rgba(255,255,255,.5)}
+.stage.grid-view .row.critical .tier-name{color:#fff}
+.stage.grid-view .row.critical .tier-win,
+.stage.grid-view .row.critical .owner{color:rgba(255,255,255,.72)}
+.stage.grid-view .row.critical .condition{color:rgba(255,255,255,.88)}
+.stage.grid-view .row.critical .subject{font-size:16px}
+.stage.grid-view .row.critical .tag{border-color:rgba(255,255,255,.38);color:rgba(255,255,255,.88);background:transparent}
+.stage.grid-view .row.critical .slot-act{border-top-color:rgba(255,255,255,.28)}
+.stage.grid-view .row.critical .cta{background:#fff;color:var(--critical);border-color:#fff}
+.stage.grid-view .row.low{background:transparent}
+
 /* density */
 body.compact .condition{display:none}
 body.compact .slot-body{padding-top:10px;padding-bottom:10px}
@@ -653,6 +681,12 @@ footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);f
 </header>
 
 <div class="controls">
+  <div class="ctrl"><span class="ctrl-lab">Layout</span>
+    <div class="seg" id="seg-layout">
+      <button data-v="rows" aria-pressed="true">Rows</button>
+      <button data-v="grid" aria-pressed="false">Grid</button>
+    </div>
+  </div>
   <div class="ctrl"><span class="ctrl-lab">Grouping</span>
     <div class="seg" id="seg-sort">
       <button data-v="grouped" aria-pressed="true">By response</button>
@@ -700,6 +734,9 @@ footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);f
     <div class="test"><div class="tagline">Dense</div>
       <h3>Scanning versus reading</h3>
       <p>Drop the condition line and the row is reduced to subject, tier and tags. A service manager assigning a day works in this mode. Anything the model needs to communicate has to survive the loss of the sentence.</p></div>
+    <div class="test"><div class="tagline">Grid</div>
+      <h3>The layout that takes the alignment away</h3>
+      <p>Rows give you a shared left edge, so the eye compares tier labels down a single column. A grid removes that entirely — each card has to declare its own priority. Critical answers by filling and spanning two columns, which makes mass the carrier rather than hue or position, and mass is the one channel that survives both greyscale and blur.</p></div>
     <div class="test"><div class="tagline">Look for</div>
       <h3>The two rows carrying a qualifier</h3>
       <p>One Medium is marked <em>Predicted</em>, one Low is marked <em>Unconfirmed</em>. Their tiers come from margin and horizon; the flag only tells you how much to trust the sentence. Confidence changed the label, not the position — that's the v2 change made visible.</p></div>
@@ -1129,7 +1166,7 @@ for(var i=0;i<18;i++){
     tags:["First seen "+(2+i)+"d ago"],cta:"Add to next visit",owner:"Technician",mins:1200+i*40,noise:true});
 }
 
-var sort="grouped", stress={mono:false,squint:false,compact:false,flood:false};
+var sort="grouped", layout="rows", stress={mono:false,squint:false,compact:false,flood:false};
 
 function ago(m){ if(m<60) return m+" min ago"; var h=Math.round(m/60); if(h<24) return h+"h ago"; return Math.round(h/24)+"d ago"; }
 
@@ -1171,6 +1208,7 @@ function render(){
   }
   $("stage").innerHTML=html;
   $("stage").classList.toggle("flat",sort!=="grouped");
+  $("stage").classList.toggle("grid-view",layout==="grid");
 
   var c=rows.filter(function(r){return r.t==="critical"}).length,
       m=rows.filter(function(r){return r.t==="medium"}).length,
@@ -1191,6 +1229,12 @@ $("states").innerHTML=[
   return '<div class="staterow"><span class="dot" style="background:'+s[0]+'"></span><span class="who">'+s[1]+'</span><span class="what">'+s[2]+'</span></div>';
 }).join("");
 
+$("seg-layout").addEventListener("click",function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  layout=b.dataset.v;
+  Array.prototype.forEach.call(this.children,function(x){x.setAttribute("aria-pressed",String(x===b))});
+  render();
+});
 $("seg-sort").addEventListener("click",function(e){
   var b=e.target.closest("button"); if(!b) return;
   sort=b.dataset.v;
