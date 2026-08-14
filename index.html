@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Event Severity Classifier · v2 + queue pressure test</title>
+<title>Event Severity Model · v2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -322,9 +322,167 @@ footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);f
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 
 
+:root{
+  --paper:#EFF0EE; --card:#FFFFFF; --ink:#15171A; --ink-2:#4A5054; --ink-3:#7C8388;
+  --rule:#D4D7D4; --rule-2:#E5E7E4; --well:#F7F8F6;
+  --critical:#BE2E1A; --medium:#C08006; --low:#6E767A; --info:#1B5FC4; --success:#127A43;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --display:'Archivo','Inter',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1300px;margin:0 auto;padding:0 28px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+h1,h2,h3{font-family:var(--display);font-weight:800;letter-spacing:-.02em;margin:0}
+p{margin:0}
+
+.masthead{border-bottom:1px solid var(--rule);padding:24px 0 30px}
+.mast-rule{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:32px}
+.masthead h1{font-size:clamp(30px,4.4vw,50px);line-height:1.03;max-width:18ch}
+.lede{margin-top:18px;max-width:60ch;color:var(--ink-2);font-size:16.5px}
+.lede strong{color:var(--ink);font-weight:600}
+
+/* controls */
+.controls{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--rule);padding:13px 0;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+.ctrl{display:flex;gap:8px;align-items:center}
+.ctrl-lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:flex;border:1px solid var(--rule);border-radius:2px;overflow:hidden;background:var(--card)}
+.seg button{font-family:var(--mono);font-size:11px;background:transparent;border:0;border-right:1px solid var(--rule);color:var(--ink-3);padding:6px 10px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+
+.scenbar{padding:16px 0;border-bottom:1px solid var(--rule);display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.chip{font-family:var(--mono);font-size:11.5px;background:transparent;border:1px solid var(--rule);color:var(--ink-2);padding:7px 11px;border-radius:2px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip:hover{border-color:var(--ink)}
+.chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+/* stage */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:0;align-items:start;padding:34px 0 10px}
+.col-l{padding-right:44px;border-right:1px solid var(--rule)}
+.col-r{padding-left:32px;position:sticky;top:60px}
+@media(max-width:1060px){.stage{grid-template-columns:1fr}.col-l{border-right:0;padding-right:0}.col-r{position:static;padding-left:0;border-top:1px solid var(--rule);padding-top:28px;margin-top:24px}}
+
+/* ball-state header */
+.ball{border:1px solid var(--ink);border-radius:3px;background:var(--card);padding:20px 22px;position:relative;overflow:hidden;margin-bottom:26px}
+.ball::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--tone)}
+.ball .who{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin-left:12px}
+.ball h2{font-size:30px;line-height:1.05;color:var(--tone);margin:5px 0 0 12px;letter-spacing:-.03em}
+.ball .say{margin:11px 0 0 12px;font-size:15.5px;max-width:44ch;line-height:1.45}
+.ball .sub{margin:9px 0 0 12px;font-size:13.5px;color:var(--ink-2);max-width:46ch}
+.ball .flags{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 0 12px}
+.flag{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;border:1px solid var(--rule);color:var(--ink-2);padding:3px 7px;border-radius:2px;background:var(--well)}
+.flag.hot{border-color:var(--tone);color:var(--tone)}
+
+/* dealer-side mirror */
+.mirror{border:1px solid var(--rule-2);border-radius:3px;background:var(--well);padding:14px 16px;margin-bottom:26px}
+.mirror .lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.mirror .txt{font-size:13.5px;color:var(--ink-2);line-height:1.42}
+.mirror .tier{font-family:var(--display);font-weight:700;font-size:13px;color:var(--dtone);margin-right:8px}
+
+/* timeline */
+.tl-head{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:14px}
+.tl{position:relative;padding-left:0}
+.step{display:grid;grid-template-columns:64px 22px 1fr;gap:0;align-items:start;position:relative}
+.step .t{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:11px 10px 0 0;text-align:right}
+.step .spine{position:relative}
+.step .spine::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--rule);transform:translateX(-50%)}
+.step:first-child .spine::before{top:16px}
+.step:last-child .spine::before{bottom:auto;height:16px}
+.step .node{position:absolute;left:50%;top:15px;width:9px;height:9px;border-radius:50%;background:var(--card);border:1.5px solid var(--rule);transform:translateX(-50%)}
+.step.fires .node{background:var(--tone);border-color:var(--tone)}
+.step.held .node{border-style:dashed}
+.step .c{padding:9px 0 13px 12px}
+.step .what{font-size:13.5px;line-height:1.4}
+.step .who2{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-bottom:2px}
+.step .chan{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;border:1px solid var(--tone);color:var(--tone);padding:2px 6px;border-radius:2px;margin-top:6px}
+.step.held .chan{border-color:var(--rule);color:var(--ink-3);border-style:dashed}
+.step.quiet .what{color:var(--ink-3)}
+
+/* artifacts */
+.arts{display:grid;gap:16px}
+.art-lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+
+/* lock screen */
+.lock{background:#1A1D21;border-radius:16px;padding:20px 14px 22px;color:#fff;position:relative;overflow:hidden}
+.lock::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 30% 0%,rgba(255,255,255,.09),transparent 60%);pointer-events:none}
+.lock .clock{text-align:center;font-family:var(--display);font-weight:400;font-size:44px;letter-spacing:-.03em;line-height:1;opacity:.95}
+.lock .date{text-align:center;font-size:11.5px;opacity:.6;margin-top:5px;margin-bottom:20px}
+.push{background:rgba(255,255,255,.13);backdrop-filter:blur(8px);border-radius:12px;padding:11px 12px;display:flex;gap:10px;align-items:flex-start}
+.push .icn{width:22px;height:22px;border-radius:5px;background:var(--tone);flex:none;margin-top:1px}
+.push .app{font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.65}
+.push .ttl{font-size:13px;font-weight:600;margin-top:2px;line-height:1.3}
+.push .bdy{font-size:12.5px;opacity:.82;margin-top:2px;line-height:1.35}
+
+/* sms */
+.sms{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:13px}
+.sms .from{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.bubble{background:var(--well);border:1px solid var(--rule-2);border-radius:14px 14px 14px 3px;padding:9px 12px;font-size:13px;line-height:1.4;max-width:92%}
+
+/* email */
+.mail{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:12px 14px}
+.mail .fr{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.03em}
+.mail .sub{font-weight:600;font-size:13.5px;margin-top:5px;line-height:1.35}
+.mail .pv{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
+
+/* app home */
+.app{background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.app .bar{padding:11px 14px;border-bottom:1px solid var(--rule-2);display:flex;justify-content:space-between;align-items:center}
+.app .bar .nm{font-weight:600;font-size:13px}
+.app .bar .tmp{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.app .hero{padding:18px 14px;text-align:center}
+.app .hero .big{font-family:var(--display);font-weight:800;font-size:34px;letter-spacing:-.03em;color:var(--tone);line-height:1.05}
+.app .hero .msg{font-size:13px;color:var(--ink-2);margin-top:7px;line-height:1.4;max-width:30ch;margin-left:auto;margin-right:auto}
+.app .cta{margin:14px 14px 16px;text-align:center;border:1px solid var(--tone);color:var(--tone);border-radius:3px;padding:9px;font-size:13px;font-weight:600}
+.app .cta.solid{background:var(--tone);color:#fff}
+.app .quiet{padding:16px 14px;text-align:center;color:var(--ink-3);font-size:13px}
+
+/* nothing sent */
+.nothing{border:1px dashed var(--rule);border-radius:3px;background:transparent;padding:16px}
+.nothing .h{font-family:var(--display);font-weight:700;font-size:15px;margin-bottom:6px}
+.nothing p{font-size:13px;color:var(--ink-2);line-height:1.45}
+
+/* volume band */
+.band{border-top:1px solid var(--rule);padding:50px 0}
+.band-head{display:grid;grid-template-columns:210px 1fr;gap:32px;margin-bottom:28px}
+@media(max-width:900px){.band-head{grid-template-columns:1fr;gap:10px}}
+.band-head h2{font-size:25px;max-width:20ch}
+.band-head p{color:var(--ink-2);max-width:62ch}
+.vol{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--rule);border-radius:3px;overflow:hidden;background:var(--card)}
+@media(max-width:800px){.vol{grid-template-columns:1fr}}
+.vol .side{padding:22px 24px}
+.vol .side:first-child{border-right:1px solid var(--rule-2)}
+@media(max-width:800px){.vol .side:first-child{border-right:0;border-bottom:1px solid var(--rule-2)}}
+.vol h3{font-size:17px;font-weight:600;margin-bottom:3px}
+.vol .sublab{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:16px}
+.vol .num{font-family:var(--display);font-weight:800;font-size:46px;letter-spacing:-.035em;line-height:1}
+.vol .unit{font-size:13px;color:var(--ink-2);margin-top:4px}
+.dots{display:flex;gap:3px;flex-wrap:wrap;margin-top:16px;max-width:340px}
+.dots i{width:9px;height:9px;border-radius:2px;background:var(--rule);display:block}
+.dots i.on{background:var(--ink)}
+.dots i.crit{background:var(--critical)}
+.dots i.med{background:var(--medium)}
+.vol .note{font-size:13px;color:var(--ink-2);margin-top:16px;line-height:1.45;max-width:40ch}
+
+.rules{display:grid;grid-template-columns:repeat(2,1fr);border-top:1px solid var(--rule)}
+@media(max-width:900px){.rules{grid-template-columns:1fr}}
+.rule-item{padding:20px 26px 20px 0;border-bottom:1px solid var(--rule-2)}
+.rule-item:nth-child(odd){border-right:1px solid var(--rule-2)}
+.rule-item:nth-child(even){padding-left:26px}
+@media(max-width:900px){.rule-item,.rule-item:nth-child(odd){border-right:0;padding-left:0;padding-right:0}}
+.rule-item .tagline{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.rule-item h3{font-size:15.5px;font-weight:600;margin-bottom:5px}
+.rule-item p{color:var(--ink-2);font-size:13.5px;line-height:1.5}
+
+footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);font-size:12px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+
 /* ---- view switch ---- */
 .viewnav{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:1px solid var(--rule);}
-.viewnav .inner{max-width:1300px;margin:0 auto;padding:10px 28px;display:flex;gap:0;align-items:center}
+.viewnav .inner{max-width:1300px;margin:0 auto;padding:10px 28px;display:flex;gap:0;align-items:center;flex-wrap:wrap}
 .viewnav button{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
   background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ink-3);
   padding:8px 0;margin-right:26px;cursor:pointer}
@@ -333,7 +491,9 @@ footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);f
 .viewnav .spacer{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--ink-3)}
 #view-queue .controls{top:41px}
+#view-owner .controls{top:41px}
 #view-classifier .right{top:52px}
+#view-owner .col-r{top:100px}
 
 </style>
 </head>
@@ -341,7 +501,8 @@ footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);f
 
 <nav class="viewnav"><div class="inner">
   <button id="nav-classifier" aria-pressed="true">The classifier</button>
-  <button id="nav-queue" aria-pressed="false">Queue pressure test</button>
+  <button id="nav-queue" aria-pressed="false">Dealer queue test</button>
+  <button id="nav-owner" aria-pressed="false">Owner experience test</button>
   <span class="spacer">Severity model v2</span>
 </div></nav>
 
@@ -745,6 +906,99 @@ footer{border-top:1px solid var(--rule);padding:24px 0 44px;color:var(--ink-3);f
 
 <footer>
   <span>Queue pressure test · companion to the severity classifier v2</span>
+  <span>All sites, addresses and equipment shown here are fictional.</span>
+</footer>
+
+</div>
+
+
+
+</div>
+
+<div id="view-owner" hidden>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="mast-rule">
+    <span class="eyebrow">Owner experience test · homeowner &amp; business owner</span>
+    <span class="eyebrow">Same model · different instrument</span>
+  </div>
+  <h1>The owner doesn't have a queue. They have one question.</h1>
+  <p class="lede">A dealer works a list. An owner has a single system and, almost always, nothing wrong with it — so the surface has to be built for the empty state first. And the question they're actually asking isn't <em>how severe is this</em>, it's <strong>who has the ball</strong>: do I need to do something, is my dealer already on it, or is this just being watched? Severity still sets the channel and the urgency. It never reaches the owner as a word.</p>
+</header>
+
+<div class="controls">
+  <div class="ctrl"><span class="ctrl-lab">Audience</span>
+    <div class="seg" id="seg-aud">
+      <button data-v="home" aria-pressed="true">Homeowner</button>
+      <button data-v="biz" aria-pressed="false">Business owner</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-lab">Time</span>
+    <div class="seg" id="seg-time">
+      <button data-v="day" aria-pressed="true">9:40am</button>
+      <button data-v="night" aria-pressed="false">2:10am</button>
+    </div>
+  </div>
+  <div class="ctrl"><span class="ctrl-lab">Dealer</span>
+    <div class="seg" id="seg-ack">
+      <button data-v="pending" aria-pressed="true">Not yet seen</button>
+      <button data-v="ack" aria-pressed="false">Acknowledged</button>
+    </div>
+  </div>
+</div>
+
+<div class="scenbar" id="scenbar"></div>
+
+<div class="stage">
+  <div class="col-l">
+    <div class="ball" id="ball"></div>
+    <div class="mirror" id="mirror"></div>
+    <div class="tl-head">Delivery sequence</div>
+    <div class="tl" id="tl"></div>
+  </div>
+  <div class="col-r">
+    <div class="art-lab">What actually arrives</div>
+    <div class="arts" id="arts"></div>
+  </div>
+</div>
+
+<section class="band">
+  <div class="band-head">
+    <h2>The month, not the moment</h2>
+    <p>Every alert design reviews well one alert at a time. The failure happens in aggregate: an owner who gets pinged weekly turns notifications off, permanently, and the channel you needed for a combustion event is gone. This is the same thirty days of equipment behaviour, counted from both sides.</p>
+  </div>
+  <div class="vol" id="vol"></div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <h2>Rules for the owner side</h2>
+    <p>These are the ones that don't exist on the dealer side at all. The dealer's queue is a work tool they opted into; the owner's phone is not.</p>
+  </div>
+  <div class="rules">
+    <div class="rule-item"><div class="tagline">Translation</div><h3>The tier never crosses over</h3>
+      <p>No owner sees the words Critical, Medium or Low, and no owner sees a fault code. They get the stake — the house, the air, the product in the cooler, the bill — plus who is handling it. Severity decides the channel and the timing behind the glass.</p></div>
+    <div class="rule-item"><div class="tagline">Sequencing</div><h3>The dealer is told first, except for safety</h3>
+      <p>Notify an owner before their dealer has triaged and you generate a phone call the dealer can't answer yet. Everything non-safety waits for acknowledgment or a short timer. Safety fires to both at once — that's the only simultaneous case.</p></div>
+    <div class="rule-item"><div class="tagline">Quiet hours</div><h3>Don't wake someone for something they can't fix at 2am</h3>
+      <p>A Critical the owner can't act on overnight is held until morning; the dealer still receives it immediately, so nothing is lost. Safety ignores quiet hours entirely — that's the whole reason the exception exists.</p></div>
+    <div class="rule-item"><div class="tagline">Budget</div><h3>Roughly one push a month, or the channel dies</h3>
+      <p>Owner tolerance is an order of magnitude below a dealer's. Every Medium promoted to push spends against the one notification that will matter later. When in doubt, put it in the app and let them find it.</p></div>
+    <div class="rule-item"><div class="tagline">Withholding</div><h3>Unconfirmed signals don't reach the owner at all</h3>
+      <p>An inferred pattern is a dealer's lead, not an owner's news. It sits on the watch list until a technician confirms it. Telling an owner their system "might" have a problem transfers anxiety without transferring any ability to act.</p></div>
+    <div class="rule-item"><div class="tagline">Language</div><h3>No dollar figures, and no diagnosis</h3>
+      <p>The product describes the condition and names who is responding. It does not estimate repair cost, project savings, or state a cause — those are the dealer's to make and the dealer's to stand behind.</p></div>
+    <div class="rule-item"><div class="tagline">Business owner</div><h3>Delegation is a first-class case</h3>
+      <p>A business owner may not be the person who acts. The alert names the site, routes to the facilities contact, and escalates on a timer if nobody acknowledges — a chain a homeowner never needs and a homeowner surface can't express.</p></div>
+    <div class="rule-item"><div class="tagline">Empty state</div><h3>The default screen is "nothing wrong," and it has to earn its keep</h3>
+      <p>An owner opens the app to a healthy system almost every time. If that screen only says "OK," there's no reason to open it twice. It's the one surface where quiet compensation — the Low tier — has real value to show.</p></div>
+  </div>
+</section>
+
+<footer>
+  <span>Owner experience test · companion to the severity model v2</span>
   <span>All sites, addresses and equipment shown here are fictional.</span>
 </footer>
 
@@ -1253,22 +1507,300 @@ render();
 
 </script>
 <script>
+
 (function(){
-  var vc=document.getElementById("view-classifier"), vq=document.getElementById("view-queue");
-  var bc=document.getElementById("nav-classifier"), bq=document.getElementById("nav-queue");
-  function show(which){
-    var q = which==="queue";
-    vq.hidden=!q; vc.hidden=q;
-    bq.setAttribute("aria-pressed",String(q));
-    bc.setAttribute("aria-pressed",String(!q));
+"use strict";
+var $=function(i){return document.getElementById(i)};
+var TONE={critical:"var(--critical)",medium:"var(--medium)",low:"var(--low)",info:"var(--info)",ok:"var(--success)"};
+
+/* ballState: act | handled | watching | silent */
+var SCEN={home:[
+  {id:"noheat",chip:"No heat",tier:"critical",dtier:"Critical",safety:false,cert:"confirmed",
+   dealer:"Furnace · 41 Oakfield Ln — not maintaining set point. Space at 51°F, outdoor 8°F.",
+   ball:{act:"Your heat is out",handled:"Your heat is out — help is on the way"},
+   say:{act:"Your furnace stopped heating and the house is dropping. We've told Marchetti Heating.",
+        handled:"Marchetti Heating has your job and is coming today between 11am and 2pm."},
+   sub:{act:"Close interior doors and stay in one room while you wait. Someone will confirm a window shortly.",
+        handled:"If the house drops below 45°F before they arrive, call them directly."},
+   cta:{act:"Call Marchetti Heating",handled:"See arrival window"},
+   push:["Your heat is out","We've notified Marchetti Heating. Tap for what to do while you wait."],
+   sms:"Your furnace at 41 Oakfield Ln has stopped heating. Marchetti Heating has been notified and will contact you. Reply STOP to opt out.",
+   mail:["Marchetti Heating","Your heating system needs attention","We detected that your furnace stopped maintaining temperature this morning…"],
+   chans:{push:true,sms:true,mail:true},holdable:true,
+   app:{big:"Heat is out",msg:"Your dealer has been notified."}},
+
+  {id:"co",chip:"CO detected",tier:"critical",dtier:"Critical",safety:true,cert:"confirmed",
+   dealer:"Furnace · 41 Oakfield Ln — carbon monoxide above threshold in the return. Heat exchanger suspected.",
+   ball:{act:"Leave the house now",handled:"Leave the house now"},
+   say:{act:"We're detecting carbon monoxide. Get everyone outside, then call 911.",
+        handled:"We're detecting carbon monoxide. Get everyone outside, then call 911."},
+   sub:{act:"Your system has been shut down remotely. Marchetti Heating and emergency services have both been alerted.",
+        handled:"Your system has been shut down remotely. Marchetti Heating and emergency services have both been alerted."},
+   cta:{act:"Call 911",handled:"Call 911"},
+   push:["Leave the house now","Carbon monoxide detected. Get everyone outside, then call 911."],
+   sms:"URGENT: Carbon monoxide detected at 41 Oakfield Ln. Leave the building now and call 911. Your system has been shut down.",
+   mail:["Marchetti Heating","Urgent: carbon monoxide detected at your home","Your system has been shut down remotely. Emergency services have been notified…"],
+   chans:{push:true,sms:true,mail:true},holdable:false,
+   app:{big:"Leave now",msg:"Carbon monoxide detected. Call 911."}},
+
+  {id:"inducer",chip:"Part wearing out",tier:"medium",dtier:"Medium",safety:false,cert:"predicted",
+   dealer:"Heat pump · 218 Marbury Rd — inducer motor drawing above spec. Likely no-heat call within weeks. [Predicted]",
+   ball:{act:"Your dealer wants to schedule a visit",handled:"Your dealer is scheduling a visit"},
+   say:{act:"A part in your system is wearing out. Marchetti Heating would like to replace it before it fails.",
+        handled:"Marchetti Heating is booking a visit to replace a part that's wearing out."},
+   sub:{act:"Nothing is wrong today — your system is heating normally. Handling it now avoids a no-heat call later.",
+        handled:"You'll get a proposed time within a day. Your system is heating normally in the meantime."},
+   cta:{act:"Pick a time",handled:"See proposed times"},
+   push:null,
+   sms:null,
+   mail:["Marchetti Heating","A part in your system is wearing out","Your heat pump is showing early signs of wear on one component. Nothing is wrong today…"],
+   chans:{push:false,sms:false,mail:true},holdable:true,
+   app:{big:"Visit being scheduled",msg:"A part is wearing out. Your dealer is on it."}},
+
+  {id:"filter",chip:"Filter due",tier:"low",dtier:"Low",safety:false,cert:"confirmed",
+   dealer:"Furnace · 512 Ashbury St — filter life at 15%. Airflow beginning to drop.",
+   ball:{act:"We're watching this",handled:"We're watching this"},
+   say:{act:"Your filter is nearly used up. Your system is still working normally.",
+        handled:"Your filter is nearly used up. Your system is still working normally."},
+   sub:{act:"Marchetti Heating will change it at your next visit. Replace it yourself any time if you'd rather.",
+        handled:"Marchetti Heating will change it at your next visit."},
+   cta:{act:"Order a filter",handled:"Order a filter"},
+   push:null,sms:null,mail:null,
+   chans:{push:false,sms:false,mail:false},holdable:true,
+   app:{big:"All good",msg:"One thing on the list for your next visit."}},
+
+  {id:"defrost",chip:"Unconfirmed pattern",tier:"low",dtier:"Low",safety:false,cert:"inferred",withheld:true,
+   dealer:"Heat pump · 9 Cranbrook Rd — one unexpected defrost cycle outside normal conditions. [Unconfirmed]",
+   ball:{act:"Nothing to tell you",handled:"Nothing to tell you"},
+   say:{act:"Your system is running normally.",handled:"Your system is running normally."},
+   sub:{act:"Something unusual was noticed once. It isn't confirmed, so it stays with your dealer until a technician looks at it.",
+        handled:"Something unusual was noticed once. It isn't confirmed, so it stays with your dealer until a technician looks at it."},
+   cta:null,
+   push:null,sms:null,mail:null,
+   chans:{push:false,sms:false,mail:false},holdable:true,
+   app:{big:"All good",msg:"Everything is running normally."}}
+],
+biz:[
+  {id:"bco",chip:"CO · school in session",tier:"critical",dtier:"Critical",safety:true,cert:"confirmed",
+   dealer:"RTU-3 · Lincoln Elementary — carbon monoxide above threshold in the return. [Sensitive occupancy]",
+   ball:{act:"Evacuate the east wing",handled:"Evacuate the east wing"},
+   say:{act:"Carbon monoxide detected at Lincoln Elementary, east wing. Clear the area and call 911.",
+        handled:"Carbon monoxide detected at Lincoln Elementary, east wing. Clear the area and call 911."},
+   sub:{act:"RTU-3 has been shut down remotely. Your facilities contact, Dana Whitmore, and Marchetti Commercial were alerted at the same time.",
+        handled:"RTU-3 has been shut down remotely. Dana Whitmore acknowledged at 7:44am; Marchetti Commercial is en route."},
+   cta:{act:"Call 911",handled:"Call Dana Whitmore"},
+   push:["Evacuate east wing — Lincoln Elementary","Carbon monoxide detected. Clear the area and call 911."],
+   sms:"URGENT: CO detected, Lincoln Elementary east wing. Evacuate and call 911. RTU-3 shut down. Marchetti Commercial notified.",
+   mail:["Marchetti Commercial","Urgent: carbon monoxide, Lincoln Elementary east wing","RTU-3 has been shut down remotely. Emergency services and your facilities contact have been notified…"],
+   chans:{push:true,sms:true,mail:true},holdable:false,escalate:true,
+   app:{big:"Evacuate",msg:"East wing · CO detected · 911 called"}},
+
+  {id:"gym",chip:"Gym losing cooling",tier:"medium",dtier:"Medium",safety:false,cert:"confirmed",
+   dealer:"AHU-2 · Lincoln Elementary gym — aux heat running nightly for three weeks to hold the space. [Sensitive occupancy]",
+   ball:{act:"A visit needs booking",handled:"Your dealer is booking a visit"},
+   say:{act:"The gym unit has been working overtime every night for three weeks to hold temperature.",
+        handled:"Marchetti Commercial is scheduling a visit for the gym unit."},
+   sub:{act:"The space is still comfortable. Left alone, this becomes a mid-day failure during use.",
+        handled:"They'll propose a time with Dana Whitmore. The space is comfortable in the meantime."},
+   cta:{act:"Approve a visit",handled:"See proposed times"},
+   push:null,sms:null,
+   mail:["Marchetti Commercial","Gym unit is working overtime — Lincoln Elementary","AHU-2 has been running supplementary heat nightly for three weeks…"],
+   chans:{push:false,sms:false,mail:true},holdable:true,escalate:false,
+   app:{big:"1 site needs a visit",msg:"Lincoln Elementary · gym unit"}},
+
+  {id:"demand",chip:"Approaching demand limit",tier:"medium",dtier:"Medium",safety:false,cert:"confirmed",
+   dealer:"RTU-2 · Lincoln Elementary — approaching the contracted demand limit for the billing period.",
+   ball:{act:"A decision is needed this week",handled:"Your dealer is reviewing the strategy"},
+   say:{act:"Lincoln Elementary is on track to pass its contracted demand limit before the billing period closes.",
+        handled:"Marchetti Commercial is reviewing your load strategy before the period closes."},
+   sub:{act:"Your dealer can adjust the load strategy. We don't estimate the difference — they'll walk you through the options.",
+        handled:"They'll bring options before the period closes. No change has been made yet."},
+   cta:{act:"Review with your dealer",handled:"See the review"},
+   push:null,sms:null,
+   mail:["Marchetti Commercial","Demand limit review — Lincoln Elementary","RTU-2 is trending toward the contracted limit for this billing period…"],
+   chans:{push:false,sms:false,mail:true},holdable:true,escalate:false,
+   app:{big:"1 site to review",msg:"Lincoln Elementary · demand"}},
+
+  {id:"bdrift",chip:"Efficiency drift",tier:"low",dtier:"Low",safety:false,cert:"inferred",withheld:true,
+   dealer:"AHU · 88 Pell St — runtime up 8% against the same month last year. [Unconfirmed]",
+   ball:{act:"Nothing to tell you",handled:"Nothing to tell you"},
+   say:{act:"All four sites are running normally.",handled:"All four sites are running normally."},
+   sub:{act:"A small efficiency drift was noticed at one site. It isn't confirmed, so it stays with your dealer for the quarterly review.",
+        handled:"A small efficiency drift was noticed at one site. It stays with your dealer for the quarterly review."},
+   cta:null,push:null,sms:null,mail:null,
+   chans:{push:false,sms:false,mail:false},holdable:true,escalate:false,
+   app:{big:"All 4 sites OK",msg:"Nothing needs you today."}}
+]};
+
+var aud="home", time="day", ack="pending", pick=0;
+
+function cur(){ return SCEN[aud][pick] }
+
+function renderChips(){
+  $("scenbar").innerHTML='<span class="eyebrow" style="margin-right:2px">Condition</span>'+
+    SCEN[aud].map(function(s,i){
+      return '<button class="chip" data-i="'+i+'" aria-pressed="'+(i===pick)+'">'+s.chip+'</button>';
+    }).join("");
+}
+
+function chanState(s){
+  // returns {push, sms, mail, held}
+  var c={push:s.chans.push,sms:s.chans.sms,mail:s.chans.mail,held:false};
+  if(!s.safety && ack==="pending" && s.tier!=="low"){ c.push=false;c.sms=false;c.mail=false;c.pending=true; }
+  if(!s.safety && time==="night" && s.holdable){
+    if(c.push||c.sms){ c.push=false;c.sms=false;c.held=true; }
+  }
+  return c;
+}
+
+function render(){
+  var s=cur(), c=chanState(s), tone=TONE[s.withheld?"ok":s.tier];
+  var state = (ack==="ack")?"handled":"act";
+  if(s.withheld||s.tier==="low") state="handled";
+
+  // ball
+  var flags=[];
+  if(s.safety) flags.push("Safety · bypasses every hold");
+  if(s.cert==="predicted") flags.push("Predicted");
+  if(s.withheld) flags.push("Withheld from owner");
+  if(c.pending) flags.push("Waiting on dealer");
+  if(c.held) flags.push("Held until 7am");
+  if(s.escalate) flags.push("Escalation chain");
+  var b=$("ball"); b.style.setProperty("--tone",tone);
+  b.innerHTML='<div class="who">'+(state==="handled"?(s.withheld||s.tier==="low"?"We're watching it":"Your dealer has it"):"You need to act")+'</div>'+
+    '<h2>'+s.ball[state]+'</h2>'+
+    '<p class="say">'+s.say[state]+'</p>'+
+    '<p class="sub">'+s.sub[state]+'</p>'+
+    (flags.length?'<div class="flags">'+flags.map(function(f){
+      var hot=/Safety|Withheld/.test(f); return '<span class="flag'+(hot?" hot":"")+'">'+f+'</span>'}).join("")+'</div>':'');
+
+  // dealer mirror
+  var m=$("mirror"); m.style.setProperty("--dtone",TONE[s.tier]);
+  m.innerHTML='<div class="lab">Same condition, dealer side</div>'+
+    '<div class="txt"><span class="tier">'+s.dtier+'</span>'+s.dealer+'</div>';
+
+  // timeline
+  var steps=[];
+  steps.push({t:time==="day"?"9:40am":"2:10am",who:"System",what:"Condition detected and classified.",chan:null,fires:false});
+  if(s.safety){
+    steps.push({t:"+0s",who:"Owner + dealer",what:"Safety events notify both at once. No hold, no quiet hours, no waiting for triage.",chan:"Push · SMS · Email",fires:true});
+    steps.push({t:"+0s",who:"Equipment",what:"Unit shut down remotely.",chan:null,fires:true});
+    if(s.escalate) steps.push({t:"+3m",who:"Escalation",what:"No acknowledgment yet — routed to the secondary site contact.",chan:"Call",fires:true});
+  } else {
+    steps.push({t:"+0s",who:"Dealer",what:"Enters the dealer queue as "+s.dtier+".",chan:s.tier==="critical"?"Push · SMS":"Digest",fires:true});
+    if(s.withheld){
+      steps.push({t:"—",who:"Owner",what:"Nothing sent. The signal is unconfirmed, so it stays with the dealer until a technician verifies it.",chan:null,fires:false,quiet:true});
+    } else if(s.tier==="low"){
+      steps.push({t:"—",who:"Owner",what:"No notification. It appears in the app the next time they open it, and in the visit summary.",chan:"In-app only",fires:false,quiet:true});
+    } else if(ack==="pending"){
+      steps.push({t:"waiting",who:"Owner",what:"Held. Notifying before the dealer has triaged creates a call the dealer can't answer yet.",chan:"Nothing sent",fires:false,held:true});
+    } else {
+      steps.push({t:"+14m",who:"Dealer",what:"Acknowledged. The owner message can now name a person and a plan.",chan:null,fires:false});
+      if(c.held){
+        steps.push({t:"held",who:"Owner",what:"Overnight. Nothing here can be acted on until morning, so the push waits.",chan:"Held until 7am",fires:false,held:true});
+        steps.push({t:"7:00am",who:"Owner",what:"Delivered.",chan:(s.chans.push?"Push":"")+(s.chans.sms?" · SMS":"")+(s.chans.mail?" · Email":""),fires:true});
+      } else {
+        steps.push({t:"+14m",who:"Owner",what:"Delivered.",chan:[s.chans.push?"Push":null,s.chans.sms?"SMS":null,s.chans.mail?"Email":null].filter(Boolean).join(" · "),fires:true});
+      }
+    }
+  }
+  $("tl").innerHTML=steps.map(function(x){
+    return '<div class="step'+(x.fires?" fires":"")+(x.held?" held":"")+(x.quiet?" quiet":"")+'" style="--tone:'+tone+'">'+
+      '<div class="t">'+x.t+'</div><div class="spine"><span class="node"></span></div>'+
+      '<div class="c"><div class="who2">'+x.who+'</div><div class="what">'+x.what+'</div>'+
+      (x.chan?'<span class="chan">'+x.chan+'</span>':'')+'</div></div>';
+  }).join("");
+
+  // artifacts
+  var A=[];
+  if(c.push && s.push){
+    A.push('<div><div class="art-lab">Lock screen</div><div class="lock" style="--tone:'+tone+'">'+
+      '<div class="clock">'+(time==="day"?"9:40":"2:10")+'</div>'+
+      '<div class="date">Tuesday, 14 January</div>'+
+      '<div class="push"><span class="icn"></span><div><div class="app">Home Comfort</div>'+
+      '<div class="ttl">'+s.push[0]+'</div><div class="bdy">'+s.push[1]+'</div></div></div></div></div>');
+  }
+  if(c.sms && s.sms){
+    A.push('<div><div class="art-lab">Text message</div><div class="sms"><div class="from">Marchetti · +1 312 555 0148</div>'+
+      '<div class="bubble">'+s.sms+'</div></div></div>');
+  }
+  if(c.mail && s.mail){
+    A.push('<div><div class="art-lab">Email</div><div class="mail"><div class="fr"><span>'+s.mail[0]+'</span><span>'+(time==="day"?"9:54am":"7:00am")+'</span></div>'+
+      '<div class="sub">'+s.mail[1]+'</div><div class="pv">'+s.mail[2]+'</div></div></div>');
+  }
+  if(!c.push && !c.sms && !c.mail){
+    var why = s.withheld ? "The signal is unconfirmed. An inferred pattern is a lead for the dealer, not news for the owner — telling someone their system <em>might</em> have a problem hands them anxiety and no way to act on it."
+      : c.pending ? "The dealer hasn't triaged it yet. Sending now produces a phone call nobody can answer."
+      : s.tier==="low" ? "Low never notifies. It waits in the app and turns up in the visit summary — which is what protects the one notification that will matter later."
+      : "Nothing qualifies for a channel right now.";
+    A.push('<div><div class="art-lab">Notifications</div><div class="nothing"><div class="h">Nothing sent — and that\'s the design</div><p>'+why+'</p></div></div>');
+  }
+  var appTone = (s.withheld||s.tier==="low")?TONE.ok:tone;
+  A.push('<div><div class="art-lab">App, whenever they next open it</div><div class="app" style="--tone:'+appTone+'">'+
+    '<div class="bar"><span class="nm">'+(aud==="home"?"41 Oakfield Ln":"Lincoln Elementary")+'</span><span class="tmp">'+(aud==="home"?"68°F":"4 sites")+'</span></div>'+
+    '<div class="hero"><div class="big">'+s.app.big+'</div><div class="msg">'+s.app.msg+'</div></div>'+
+    (s.cta?'<div class="cta'+(s.tier==="critical"?" solid":"")+'">'+s.cta[state]+'</div>':'<div class="quiet">Nothing needs you today.</div>')+
+    '</div></div>');
+  $("arts").innerHTML=A.join("");
+
+  // volume
+  var v = aud==="home"
+    ? {own:2,ownUnit:"messages in 30 days",ownNote:"One email about a wearing part, one push the morning the heat went out. Everything else lived in the app until someone opened it.",
+       deal:9,dealUnit:"queue items from this home in 30 days",dealNote:"The dealer saw every filter reading, every extended cycle and every unconfirmed pattern — because that is their job and their tool.",
+       pat:[["crit",1],["med",1],["on",0],["off",28]], dpat:[["crit",1],["med",2],["on",6],["off",21]]}
+    : {own:4,ownUnit:"messages in 30 days, across four sites",ownNote:"One urgent sequence, two scheduling emails, one quarterly summary. The facilities contact received more; the owner received the ones that needed a decision.",
+       deal:31,dealUnit:"queue items across four sites in 30 days",dealNote:"Four buildings generate roughly eight conditions each a month. None of that volume reaches the owner unless a decision belongs to them.",
+       pat:[["crit",1],["med",2],["on",1],["off",26]], dpat:[["crit",1],["med",7],["on",23],["off",0]]};
+  function dots(p){ return p.map(function(x){var o="";for(var i=0;i<x[1];i++)o+='<i class="'+(x[0]==="off"?"":x[0])+'"></i>';return o}).join("") }
+  $("vol").innerHTML=
+    '<div class="side"><h3>'+(aud==="home"?"The homeowner":"The business owner")+'</h3><div class="sublab">What reaches them</div>'+
+      '<div class="num">'+v.own+'</div><div class="unit">'+v.ownUnit+'</div>'+
+      '<div class="dots">'+dots(v.pat)+'</div><p class="note">'+v.ownNote+'</p></div>'+
+    '<div class="side"><h3>The dealer</h3><div class="sublab">What reaches them</div>'+
+      '<div class="num">'+v.deal+'</div><div class="unit">'+v.dealUnit+'</div>'+
+      '<div class="dots">'+dots(v.dpat)+'</div><p class="note">'+v.dealNote+'</p></div>';
+}
+
+$("scenbar").addEventListener("click",function(e){
+  var b=e.target.closest(".chip"); if(!b) return;
+  pick=+b.dataset.i; renderChips(); render();
+});
+function seg(id,fn){
+  $(id).addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b) return;
+    Array.prototype.forEach.call(this.children,function(x){x.setAttribute("aria-pressed",String(x===b))});
+    fn(b.dataset.v);
+  });
+}
+seg("seg-aud",function(v){aud=v;pick=0;renderChips();render()});
+seg("seg-time",function(v){time=v;render()});
+seg("seg-ack",function(v){ack=v;render()});
+
+renderChips(); render();
+})();
+
+</script>
+<script>
+(function(){
+  var views={classifier:document.getElementById("view-classifier"),
+              queue:document.getElementById("view-queue"),
+              owner:document.getElementById("view-owner")};
+  var btns={classifier:document.getElementById("nav-classifier"),
+             queue:document.getElementById("nav-queue"),
+             owner:document.getElementById("nav-owner")};
+  function show(k){
+    Object.keys(views).forEach(function(n){
+      views[n].hidden = (n!==k);
+      btns[n].setAttribute("aria-pressed",String(n===k));
+    });
     window.scrollTo({top:0,behavior:"instant"});
   }
-  bc.addEventListener("click",function(){show("classifier")});
-  bq.addEventListener("click",function(){show("queue")});
+  Object.keys(btns).forEach(function(k){ btns[k].addEventListener("click",function(){show(k)}) });
   document.addEventListener("click",function(e){
     var a=e.target.closest("a[href]"); if(!a) return;
     var h=a.getAttribute("href")||"";
     if(h.indexOf("queue-pressure-test")>-1){e.preventDefault();show("queue")}
+    else if(h.indexOf("owner-experience")>-1){e.preventDefault();show("owner")}
     else if(h.indexOf("severity-classifier")>-1){e.preventDefault();show("classifier")}
   });
 })();
